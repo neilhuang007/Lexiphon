@@ -17,17 +17,31 @@ export default async function handler(req, res) {
     }
 
     try {
-        const { prompt, systemPrompt } = req.body;
+        const { prompt, systemPrompt, messages } = req.body;
 
         console.log('DeepSeek API Key:', process.env.DEEPSEEK_API_KEY ? 'Present' : 'MISSING!');
+        console.log('Has messages:', !!messages);
         console.log('Prompt length:', prompt?.length || 0);
+
+        let requestMessages;
+
+        // If messages array provided, use it (for conversation format)
+        if (messages && Array.isArray(messages)) {
+            requestMessages = [
+                {role: 'system', content: systemPrompt},
+                ...messages.slice(0, -1) // All messages except the last one which is in prompt
+            ];
+        } else {
+            // Fallback to simple format
+            requestMessages = [
+                {role: 'system', content: systemPrompt},
+                {role: 'user', content: prompt}
+            ];
+        }
 
         const requestBody = {
             model: 'deepseek-chat',
-            messages: [
-                {role: 'system', content: systemPrompt},
-                {role: 'user', content: prompt}
-            ],
+            messages: requestMessages,
             stream: false,
             temperature: 1.3
         };

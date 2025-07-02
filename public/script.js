@@ -608,21 +608,78 @@ async function processTextForTerms(text, chunkId) {
     if (!text.trim()) return;
     document.getElementById('processingIndicator').style.display = 'inline-flex';
 
-    const prompt = `Extract complex economics/finance/business terms from: "${text}"
-
-DO NOT include basic terms (ex: money, company) (unless part of a complex term) but INCLUDE terms with specific meanings in economic context (ex: Securities, Equity, Derivatives, Bonds)
-
-Focus on:
-- Technical economic terms and abbreviations
-- Financial instruments (ETF, derivatives, bonds, Securities)
-- Economic theories and models
-
-Use a spartan tone of voice, return JSON only: {"terms": [{"term": "...", "definition": "...", "historicalContext": "..."}]}
-If no terms found, return: {"terms": []}`;
+    // Build conversation history for few-shot learning
+    const conversation = [
+        {
+            role: "user",
+            content: "Extract complex economics/finance/business terms from lecture transcripts. Focus on technical terms, financial instruments, and economic theories. Return JSON only: {\"terms\": [{\"term\": \"...\", \"definition\": \"...\", \"historicalContext\": \"...\"}]}"
+        },
+        {
+            role: "assistant",
+            content: "I'll extract complex economic terms and provide their definitions and historical context in JSON format."
+        },
+        {
+            role: "user",
+            content: "The Federal Reserve announced changes to interest rates affecting monetary policy"
+        },
+        {
+            role: "assistant",
+            content: "{\"terms\": [{\"term\": \"Federal Reserve\", \"definition\": \"The central banking system of the United States responsible for monetary policy\", \"historicalContext\": \"Established in 1913 after financial panics to provide stable monetary framework\"}, {\"term\": \"monetary policy\", \"definition\": \"Actions by central banks to influence money supply and interest rates\", \"historicalContext\": \"Modern monetary policy evolved from Keynesian economics in the 1930s\"}]}"
+        },
+        {
+            role: "user",
+            content: "Companies are issuing more bonds and ETFs in the derivatives market"
+        },
+        {
+            role: "assistant",
+            content: "{\"terms\": [{\"term\": \"bonds\", \"definition\": \"Debt securities where investors loan money to entities for defined periods at fixed interest rates\", \"historicalContext\": \"First government bonds trace to 1694 Bank of England, corporate bonds emerged in 1800s railroad expansion\"}, {\"term\": \"ETFs\", \"definition\": \"Exchange-Traded Funds - securities tracking indexes traded like stocks\", \"historicalContext\": \"First ETF launched 1993, revolutionized passive investing\"}, {\"term\": \"derivatives\", \"definition\": \"Financial contracts whose value depends on underlying assets\", \"historicalContext\": \"Modern derivatives market began with 1972 Chicago Mercantile Exchange currency futures\"}]}"
+        },
+        {
+            role: "user",
+            content: "The company makes money by selling products"
+        },
+        {
+            role: "assistant",
+            content: "{\"terms\": []}"
+        },
+        {
+            role: "user",
+            content: text
+        }
+    ];
 
     try {
-        const response = await callDeepSeek(prompt, "You are an economics lecture assistant");
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        // Create messages array from conversation
+        const messages = conversation.map(msg => ({
+            role: msg.role === "user" ? "user" : "assistant",
+            content: msg.content
+        }));
+
+        const requestBody = {
+            model: 'deepseek-chat',
+            messages: messages,
+            stream: false,
+            temperature: 1.3
+        };
+
+        const response = await fetch('/api/deepseek', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prompt: messages[messages.length - 1].content,
+                systemPrompt: "You are an economics lecture assistant. Extract only complex technical terms.",
+                messages: messages // Pass full conversation
+            })
+        });
+
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             const json = JSON.parse(jsonMatch[0]);
             if (json.terms && json.terms.length > 0) {
@@ -647,40 +704,94 @@ If no terms found, return: {"terms": []}`;
 async function processTextForEvents(text, chunkId) {
     if (!text.trim()) return;
 
-    const prompt = `task: Evaluate the transcript provided and identify historical events referred to. Return results in JSON with quote from transcription, event name, and a description of that event.
-
-Good examples:
-Input: " Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21. Fear of prosecution. Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21, declaring that Bitcoin is treated. As property rather than currency."
-Output: {"events": [{"quote": "IRS 2014, where roughly a year later, the IRS issued notice 2014-21", "event": "Notice 2014-21", "description": "Global financial crisis triggered by the collapse of the housing bubble in the United States, leading to bank failures and worldwide recession"}]}
-
-Input: "
-So where does Bitcoin gain its value? Bitcoin gained its value primarily through FinCEN in March 2013. It basically classified Bitcoin as Classified Bitcoin as a money service business. That's actually pretty cool. The subject is basically saying how you may own and mine. Money service business, and it's. Own and mine Bitcoin without fear of prosecution.
-"
-Output: {"events": [{"quote": "through FinCEN in March 2013", "event": "FIN-2013-G001", "description": "In March 2013, the Financial Crimes Enforcement Network (FinCEN) issued guidance FIN-2013-G001, marking the U.S. government's first formal policy on cryptocurrency. It classified all Bitcoin exchanges as "Money Services Businesses" (MSBs)—subject to Bank Secrecy Act registration and reporting—while explicitly exempting individual miners and ordinary users from MSB obligations. This nuanced stance effectively told Americans, "You may own and mine Bitcoin without fear of prosecution," even as law enforcement was closing in on Silk Road operators. In the weeks following the ruling, Bitcoin's market price quadrupled from $50 to $200, reflecting newfound regulatory clarity"}]}
-
-Bad examples (too vague or not historical events):
-
-Input: "Inflation happens when prices rise"
-Output: {"events": []} // General concept, not a historical event
-
-Text: "${text}"
-
-Return JSON only. If no events found, return: {"events": []}`;
+    // Build conversation history for event detection
+    const conversation = [
+        {
+            role: "user",
+            content: "Identify historical events mentioned in lecture transcripts. Return JSON: {\"events\": [{\"quote\": \"exact quote\", \"event\": \"event name\", \"description\": \"detailed description\"}]}"
+        },
+        {
+            role: "assistant",
+            content: "I'll identify historical events with their quotes and descriptions in JSON format."
+        },
+        {
+            role: "user",
+            content: "Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21, declaring that Bitcoin is treated as property rather than currency."
+        },
+        {
+            role: "assistant",
+            content: "{\"events\": [{\"quote\": \"IRS 2014, where roughly a year later, the IRS issued notice 2014-21\", \"event\": \"Notice 2014-21\", \"description\": \"IRS guidance issued in 2014 that classified Bitcoin and cryptocurrencies as property for tax purposes rather than currency, establishing foundational tax treatment for digital assets in the United States\"}]}"
+        },
+        {
+            role: "user",
+            content: "So where does Bitcoin gain its value? Bitcoin gained its value primarily through FinCEN in March 2013. It basically classified Bitcoin as a money service business."
+        },
+        {
+            role: "assistant",
+            content: "{\"events\": [{\"quote\": \"through FinCEN in March 2013\", \"event\": \"FIN-2013-G001\", \"description\": \"In March 2013, the Financial Crimes Enforcement Network (FinCEN) issued guidance FIN-2013-G001, marking the U.S. government's first formal policy on cryptocurrency. It classified all Bitcoin exchanges as Money Services Businesses (MSBs) subject to Bank Secrecy Act registration and reporting, while exempting individual miners and ordinary users from MSB obligations\"}]}"
+        },
+        {
+            role: "user",
+            content: "Inflation happens when prices rise across the economy"
+        },
+        {
+            role: "assistant",
+            content: "{\"events\": []}"
+        },
+        {
+            role: "user",
+            content: "The 2008 financial crisis was triggered by the housing market collapse"
+        },
+        {
+            role: "assistant",
+            content: "{\"events\": [{\"quote\": \"2008 financial crisis was triggered by the housing market collapse\", \"event\": \"2008 Financial Crisis\", \"description\": \"Global financial crisis triggered by the collapse of the U.S. housing bubble, subprime mortgage failures, and the bankruptcy of Lehman Brothers, leading to worldwide recession and unprecedented government interventions including bank bailouts and quantitative easing\"}]}"
+        },
+        {
+            role: "user",
+            content: text
+        }
+    ];
 
     try {
-        const response = await callDeepSeek(prompt, "You are a lecture assistant studying finance history");
-        console.log('Event detection response:', response);
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        const messages = conversation.map(msg => ({
+            role: msg.role === "user" ? "user" : "assistant",
+            content: msg.content
+        }));
+
+        const requestBody = {
+            model: 'deepseek-chat',
+            messages: messages,
+            stream: false,
+            temperature: 1.3
+        };
+
+        const response = await fetch('/api/deepseek', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prompt: messages[messages.length - 1].content,
+                systemPrompt: "You are a lecture assistant studying finance history. Identify only specific historical events, not general concepts.",
+                messages: messages
+            })
+        });
+
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+        console.log('Event detection response:', content);
+
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             const json = JSON.parse(jsonMatch[0]);
             if (json.events && json.events.length > 0) {
                 json.events.forEach(e => {
                     const eventKey = e.event.toLowerCase().replace(/\s+/g, '-');
                     if (!detectedEvents.has(eventKey)) {
-                        // Store the chunk ID and generate search terms
                         e.chunkId = chunkId;
                         e.searchTerms = generateEventSearchTerms(e.event);
-                        // Also add the original quote as a search term
                         if (e.quote && !e.searchTerms.includes(e.quote)) {
                             e.searchTerms.push(e.quote);
                         }
