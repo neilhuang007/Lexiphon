@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Transcriber - Real-time Economics Analysis</title>
+    <script defer src="script.js"></script>
+    <script defer src="audio.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- Permission Modal -->
+<div id="permissionModal" class="permission-modal">
+    <div class="permission-content">
+        <h3>Microphone Permission Required</h3>
+        <p>AI Transcriber needs access to your microphone to transcribe lectures in real-time. Please allow access when
+            prompted.</p>
+        <button class="permission-btn" onclick="requestMicrophonePermission()">Allow Microphone</button>
+    </div>
+</div>
+
+<div id="errorContainer"></div>
+
+
+
+<div class="app-container">
+
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h1>Lexiphon</h1>
+            <button id="sidebarToggle" class="sidebar-toggle">
+                <svg class="toggle-icon-collapse" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" color="currentColor">
+                    <rect x="7" y="6.5" width="7" height="1.5" rx="0.75" transform="rotate(90 7 6.5)" fill="currentColor"></rect>
+                    <rect x="3" y="4" width="14" height="12" rx="2.8" stroke="currentColor" stroke-width="1.5"></rect>
+                </svg>
+                <svg class="toggle-icon-expand" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" color="currentColor">
+                    <rect x="10.5" y="6.5" width="7" height="5" rx="1" transform="rotate(90 10.5 6.5)" fill="currentColor"></rect>
+                    <rect x="3" y="4" width="14" height="12" rx="2.8" stroke="currentColor" stroke-width="1.5"></rect>
+                </svg>
+            </button>
+        </div>
+
+        <div class="sidebar-section">
+            <h3>Categories</h3>
+            <div class="category-item active" data-tooltip="Finance/Business">
+                <svg class="category-icon" width="1.25rem" height="1.25rem" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" color="currentColor"><path d="M8.66333 13H14.4967M11.7883 10H14.4967M2.5 13.3334C2.5 14.7141 3.61929 16 5 16H15C16.3807 16 17.5 14.7141 17.5 13.3334V6.66669C17.5 5.28598 16.3807 4 15 4H9.16667" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4.78564 3.54166C6.73827 5.49428 6.73826 8.6601 4.78564 10.6127M2.42862 5.89868C3.0795 6.54955 3.0795 7.60483 2.42862 8.2557" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>
+                <span class="category-text">Finance/Business</span>
+            </div>
+            <div class="category-item" data-tooltip="Computer Science">
+                <svg class="category-icon" width="1.25rem" height="1.25rem"
+                     viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"
+                     color="currentColor">
+                    <!-- chip body -->
+                    <rect x="4" y="4" width="12" height="12" rx="2"
+                          stroke="currentColor" stroke-width="1.5"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+                    <!-- pins -->
+                    <path d="M7 4V2  M13 4V2
+       M4 7H2  M4 13H2
+       M16 7H18  M16 13H18
+       M7 16V18  M13 16V18"
+                          stroke="currentColor" stroke-width="1.5"
+                          stroke-linecap="round"/>
+                    <!-- central node -->
+                    <circle cx="10" cy="10" r="1.5"
+                            fill="currentColor"/>
+                    <!-- internal traces -->
+                    <path d="M10 10L6 6  M10 10L14 14"
+                          stroke="currentColor" stroke-width="1.5"
+                          stroke-linecap="round"/>
+                </svg>
+                <span class="category-text">Computer Science</span>
+            </div>
+            <div class="category-item" data-tooltip="History">
+                <svg class="category-icon" width="1.25rem" height="1.25rem" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+                    <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAABJElEQVR4nO2WTUoDQRCFv72JK80uGN14DBN3+QM9jMSfu8SdQggYklskniPiwgSzl5aGN9CI9iRQ7aDMBwUzzKP6dVdNzUBJSRxnFH/XQMauicwWzigNuKJLsFbCyhbafWlXlgYWStoE7iPdPgTOdT23NHCrpBOgAbx8s/gSOAJmur+2NHAIvCnxADgBHoFXxQNwDNxI47UHGNMDPrTAFGipJyo69mznXtMlEW0110898A5ckJDOFgYuUy3eD0rwBJwBe4qmGjQrgS+XKbVg51cR3SBoQt+4ZtwFO89jKq1/I8x4VlJ/7Hm0Ugyi9Q6juJpiFLsvH5c6MAY2Cl+a04je1EA9mIphrPQsuYFxZA6MfsPAJmcQmRpwRf+UuqINlPx/PgGfL9GOq8AQnAAAAABJRU5ErkJggg==" width="32" height="32"/>
+                </svg>
+                <span class="category-text">History</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+        <header class="app-header">
+            <h3>Finance & business</h3>
+        </header>
+
+        <div class="content-wrapper">
+
+            <div class="main-section-wrapper">
+                <div class="main-container">
+                    <div class="transcription-area" id="transcriptionArea" contenteditable="false">
+                        <div class="transcription-placeholder">Start recording or upload an audio file to begin transcription
+                        </div>
+                    </div>
+                    <div class="notes-area" id="notesArea" contenteditable="true" data-placeholder="Add notes here..."></div>
+                </div>
+
+                <!-- Controls -->
+                <div class="controls-section">
+                    <div class="button-group">
+                        <button class="primary-btn" id="recordBtn">
+                            Start Recording
+                        </button>
+
+                        <button type="button" id="uploadBtn"
+                                onclick="document.getElementById('audioUpload').click()">
+                            Transcribe files
+                        </button>
+                        <input type="file" id="audioUpload" accept="audio/*" style="display: none;">
+                    </div>
+
+                    <div class="audio-visualizer-inline" id="audioVisualizerInline">
+                        <div id="visualizerContainer"></div>
+                    </div>
+
+                    <div class="status-bar">
+                        <div class="status-indicator" id="statusIndicator">
+                            <span class="dot"></span>
+                            <span id="statusText">Ready</span>
+                        </div>
+                        <div class="processing-indicator" id="processingIndicator" style="display: none;">
+                            <div class="spinner"></div>
+                            <span>Analyzing</span>
+                        </div>
+                        <div class="correction-indicator" id="correctionIndicator" style="display: none;">
+                            <div class="spinner"></div>
+                            <span>Correcting</span>
+                        </div>
+                        <div class="upload-indicator" id="uploadIndicator" style="display: none;">
+                            <div class="spinner"></div>
+                            <span id="uploadQueueStatus">Queue: 0</span>
+                        </div>
+                    </div>
+
+                    <div class="language-selector">
+                        <select id="languageSelect">
+                            <option value="auto">Auto-detect</option>
+                            <option value="en">English</option>
+                            <option value="es">Spanish</option>
+                            <option value="fr">French</option>
+                            <option value="de">German</option>
+                            <option value="it">Italian</option>
+                            <option value="pt">Portuguese</option>
+                            <option value="zh">Chinese</option>
+                            <option value="ja">Japanese</option>
+                            <option value="ko">Korean</option>
+                        </select>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="clear-btn">
+                            Clear Transcription
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Sidebar - Terms -->
+            <aside class="terms-sidebar">
+                <h3 class="terms-header">Detected Terms & Events</h3>
+                <div class="terms-list" id="termsContainer">
+                    <div class="no-terms">Economic terms and events will appear here as they're detected</div>
+                </div>
+            </aside>
+        </div>
+    </main>
+
+
+</div>
+</body>
+</html>
