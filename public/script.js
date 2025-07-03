@@ -21,7 +21,7 @@ const MAX_CONCURRENT_UPLOADS = 4;
 const BASE_CHUNK_SIZE = 25;
 
 // Update the DeepSeek function
-async function callDeepSeek(prompt, systemPrompt = "You are a helpful assistant.") {
+async function callDeepSeek(prompt, systemPrompt = "You are an helpful, intelligent assistant") {
     const response = await fetch('/api/deepseek', {
         method: 'POST',
         headers: {
@@ -426,29 +426,82 @@ async function processRemainingText() {
 async function correctTyposForChunk(text) {
     if (!text.trim()) return '';
 
-    const prompt = `task is to clean up this lecture transcription: "${text}"
-
-Rules:
-1. Fix spelling
-2. Add punctuation capitalization
-3. Remove ALL unrelated content and indicators, ex. (laugh), [inaudible], (coughing), (mouse clicking) etc.
-6. If no actual meaningful content, return empty string ""
-7. Return ONLY the cleaned text or empty string, nothing else do not add quotation marks around the sentence, use a spartan tone of voice
-
-Example:
-Input: "(background noise) (students chatting) (inaudible) (coughing)"
-Output: ""
-
-Input: "um uh well like you know basically uh"
-Output: ""
-
-Input: "(background noise) so the inflasion rate (student talking) have you seen the recent movie. is incresing rapedly wat do you think"
-Output: So the inflation rate is increasing rapidly. What do you think?`;
+    // Build conversation history with 4 key examples
+    const conversation = [
+        {
+            role: "user",
+            content: "Clean up lecture transcriptions: fix spelling, add punctuation/capitalization, remove interruptions like (laugh), [inaudible], etc. If no meaningful content, return empty string. If sentence is unfinished at the end, keep it. Return ONLY cleaned text."
+        },
+        {
+            role: "assistant",
+            content: "I'll clean up transcriptions by fixing errors and removing interruptions while preserving meaningful content."
+        },
+        {
+            role: "user",
+            content: "(background noise) (students chatting) (inaudible) (coughing)"
+        },
+        {
+            role: "assistant",
+            content: ""
+        },
+        {
+            role: "user",
+            content: "so the inflasion rate (student talking) have you seen the recent movie. is incresing rapedly wat do you think"
+        },
+        {
+            role: "assistant",
+            content: "So the inflation rate is increasing rapidly. What do you think?"
+        },
+        {
+            role: "user",
+            content: "I tried and I tried. In 2011, the dark web was really difficult, so I just forgot about it. And then about a year later, I"
+        },
+        {
+            role: "assistant",
+            content: "I tried and I tried. In 2011, the dark web was really difficult, so I just forgot about it. And then about a year later, I"
+        },
+        {
+            role: "user",
+            content: "Anybody ever heard of Mt. Gox? (mouse clicking) Does that sound familiar? No. It was the first place to buy Bitcoin and it was 404. The website."
+        },
+        {
+            role: "assistant",
+            content: "Anybody ever heard of Mt. Gox? Does that sound familiar? No. It was the first place to buy Bitcoin and it was 404. The website."
+        },
+        {
+            role: "user",
+            content: text
+        }
+    ];
 
     try {
-        const response = await callDeepSeek(prompt, "You are a transcription editor for economics lectures");
-        const cleaned = response.trim();
-        if (cleaned === '""' || cleaned === "''") return '';
+        const messages = conversation.map(msg => ({
+            role: msg.role === "user" ? "user" : "assistant",
+            content: msg.content
+        }));
+
+        const response = await fetch('/api/deepseek', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prompt: messages[messages.length - 1].content,
+                systemPrompt: "You are a helpful intelligent assistant",
+                messages: messages
+            })
+        });
+
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+
+        const data = await response.json();
+        const cleaned = data.choices[0].message.content.trim();
+
+        // Handle edge cases
+        if (cleaned === '""' || cleaned === "''" || cleaned.toLowerCase() === 'empty string') {
+            return '';
+        }
+
         return cleaned;
     } catch (e) {
         console.error('Correction error:', e);
@@ -669,7 +722,7 @@ async function processTextForTerms(text, chunkId) {
             },
             body: JSON.stringify({
                 prompt: messages[messages.length - 1].content,
-                systemPrompt: "You are an economics lecture assistant. Extract only complex technical terms.",
+                systemPrompt: "You are an helpful, intelligent assistant",
                 messages: messages // Pass full conversation
             })
         });
@@ -708,7 +761,7 @@ async function processTextForEvents(text, chunkId) {
     const conversation = [
         {
             role: "user",
-            content: "Identify historical events mentioned in lecture transcripts. Return JSON: {\"events\": [{\"quote\": \"exact quote\", \"event\": \"event name\", \"description\": \"detailed description\"}]}"
+            content: "Identify historical events mentioned in lecture transcripts. if the same event is mentioned multiple times, only return 1 occurrence of that event and quote the entire text from start to end. Return JSON: {\"events\": [{\"quote\": \"exact quote\", \"event\": \"event name\", \"description\": \"detailed description\"}]}"
         },
         {
             role: "assistant",
@@ -772,7 +825,7 @@ async function processTextForEvents(text, chunkId) {
             },
             body: JSON.stringify({
                 prompt: messages[messages.length - 1].content,
-                systemPrompt: "You are a lecture assistant studying finance history. Identify only specific historical events, not general concepts.",
+                systemPrompt: "You are an helpful, intelligent assistant",
                 messages: messages
             })
         });
