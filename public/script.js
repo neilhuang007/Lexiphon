@@ -20,21 +20,34 @@ let activeUploads = 0;
 const MAX_CONCURRENT_UPLOADS = 4;
 const BASE_CHUNK_SIZE = 25;
 
-// Update the DeepSeek function
-async function callDeepSeek(prompt, systemPrompt = "You are an helpful, intelligent assistant") {
+async function callDeepSeek(prompt, systemPrompt = "You are a helpful assistant.", messages = null, useJsonOutput = false) {
+    const body = messages
+        ? {messages, useJsonOutput}
+        : {prompt, systemPrompt, useJsonOutput};
+
     const response = await fetch('/api/deepseek', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ prompt, systemPrompt })
+        body: JSON.stringify(body)
     });
 
     if (!response.ok) {
+        const errorText = await response.text();
+        console.error('DeepSeek API error:', errorText);
         throw new Error(`DeepSeek API error: ${response.status}`);
     }
 
     const data = await response.json();
+
+    // Handle occasional empty content when using JSON output
+    if (useJsonOutput && (!data.choices[0].message.content || data.choices[0].message.content.trim() === '')) {
+        console.warn('Empty JSON response, retrying...');
+        // Retry once with slightly modified prompt
+        return callDeepSeek(prompt, systemPrompt, messages, useJsonOutput);
+    }
+
     return data.choices[0].message.content;
 }
 
@@ -257,6 +270,11 @@ async function handleAudioUpload(e) {
 
     updateStatus('transcribing');
 
+    // Show simple visualization bars
+    if (window.AudioFileVisualizer) {
+        window.AudioFileVisualizer.visualizeFile(file);
+    }
+
     try {
         // Convert file to base64
         const reader = new FileReader();
@@ -303,6 +321,11 @@ async function handleAudioUpload(e) {
     } finally {
         updateStatus('ready');
         e.target.value = '';
+
+        // Stop visualization
+        if (window.AudioFileVisualizer) {
+            window.AudioFileVisualizer.stop();
+        }
     }
 }
 
@@ -426,82 +449,29 @@ async function processRemainingText() {
 async function correctTyposForChunk(text) {
     if (!text.trim()) return '';
 
-    // Build conversation history with 4 key examples
-    const conversation = [
-        {
-            role: "user",
-            content: "Clean up lecture transcriptions: fix spelling, add punctuation/capitalization, remove interruptions like (laugh), [inaudible], etc. If no meaningful content, return empty string. If sentence is unfinished at the end, keep it. Return ONLY cleaned text."
-        },
-        {
-            role: "assistant",
-            content: "I'll clean up transcriptions by fixing errors and removing interruptions while preserving meaningful content."
-        },
-        {
-            role: "user",
-            content: "(background noise) (students chatting) (inaudible) (coughing)"
-        },
-        {
-            role: "assistant",
-            content: ""
-        },
-        {
-            role: "user",
-            content: "so the inflasion rate (student talking) have you seen the recent movie. is incresing rapedly wat do you think"
-        },
-        {
-            role: "assistant",
-            content: "So the inflation rate is increasing rapidly. What do you think?"
-        },
-        {
-            role: "user",
-            content: "I tried and I tried. In 2011, the dark web was really difficult, so I just forgot about it. And then about a year later, I"
-        },
-        {
-            role: "assistant",
-            content: "I tried and I tried. In 2011, the dark web was really difficult, so I just forgot about it. And then about a year later, I"
-        },
-        {
-            role: "user",
-            content: "Anybody ever heard of Mt. Gox? (mouse clicking) Does that sound familiar? No. It was the first place to buy Bitcoin and it was 404. The website."
-        },
-        {
-            role: "assistant",
-            content: "Anybody ever heard of Mt. Gox? Does that sound familiar? No. It was the first place to buy Bitcoin and it was 404. The website."
-        },
-        {
-            role: "user",
-            content: text
-        }
-    ];
+    const prompt = `task is to clean up this lecture transcription: "${text}"
+
+Rules:
+1. Fix spelling
+2. Add punctuation capitalization
+3. Remove ALL unrelated content and indicators, ex. (laugh), [inaudible], (coughing), (mouse clicking) etc.
+6. If no actual meaningful content, return empty string ""
+7. Return ONLY the cleaned text or empty string, nothing else do not add quotation marks around the sentence, use a spartan tone of voice
+
+Example:
+Input: "(background noise) (students chatting) (inaudible) (coughing)"
+Output: ""
+
+Input: "(clears throat) So basically, um, like- like, the way this works is that when you type in the URL, you get a 404 error, which means page not found, and that's, uh (mumbles) kinda the joke there."
+Output: So basically, the way this works is that when you type in the URL, you get a 404 error, which means page not found, and that's kinda the joke there.
+
+Input: "Anybody ever heard of Mt. Gox? (mouse clicking) Does that sound familiar? No. It was the first place to buy Bitcoin and it was 404. The website."
+Output: Anybody ever heard of Mt. Gox? Does that sound familiar? No. It was the first place to buy Bitcoin and it was 404. The website.`;
 
     try {
-        const messages = conversation.map(msg => ({
-            role: msg.role === "user" ? "user" : "assistant",
-            content: msg.content
-        }));
-
-        const response = await fetch('/api/deepseek', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                prompt: messages[messages.length - 1].content,
-                systemPrompt: "You are a helpful intelligent assistant",
-                messages: messages
-            })
-        });
-
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
-
-        const data = await response.json();
-        const cleaned = data.choices[0].message.content.trim();
-
-        // Handle edge cases
-        if (cleaned === '""' || cleaned === "''" || cleaned.toLowerCase() === 'empty string') {
-            return '';
-        }
-
+        const response = await callDeepSeek(prompt, "You are a transcription editor for economics lectures");
+        const cleaned = response.trim();
+        if (cleaned === '""' || cleaned === "''") return '';
         return cleaned;
     } catch (e) {
         console.error('Correction error:', e);
@@ -657,93 +627,165 @@ function updateTranscriptionDisplay() {
     });
 }
 
-async function processTextForTerms(text, chunkId) {
+async function processTextForEvents(text, chunkId) {
     if (!text.trim()) return;
-    document.getElementById('processingIndicator').style.display = 'inline-flex';
 
-    // Build conversation history for few-shot learning
-    const conversation = [
+    const messages = [
+        {
+            role: "system",
+            content: "You are a lecture assistant studying finance history, specializing in identifying historical events and their economic significance."
+        },
         {
             role: "user",
-            content: "Extract complex economics/finance/business terms from lecture transcripts. Focus on technical terms, financial instruments, and economic theories. Return JSON only: {\"terms\": [{\"term\": \"...\", \"definition\": \"...\", \"historicalContext\": \"...\"}]}"
+            content: `Evaluate the transcript provided and identify historical events referred to. Use Spartan tone of voice and return in JSON with format {"events": [{"quote": "", "event": "", "description": ""}]} If no events found, return: {"events": []}
+Extract events from: "Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21, declaring that Bitcoin is treated. As property rather than currency."`
         },
         {
             role: "assistant",
-            content: "I'll extract complex economic terms and provide their definitions and historical context in JSON format."
+            content: '{"events": [{"quote": "Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21", "event": "Notice 2014-21", "description": "IRS guidance issued in 2014 that classified Bitcoin and cryptocurrencies as property for tax purposes rather than currency, establishing foundational tax treatment for digital assets in the United States"}]}'
         },
         {
             role: "user",
-            content: "The Federal Reserve announced changes to interest rates affecting monetary policy"
+            content: 'Extract events from: "So where does Bitcoin gain its value? Bitcoin gained its value primarily through FinCEN in March 2013. It basically classified Bitcoin as Classified Bitcoin as a money service business. That\'s actually pretty cool. The subject is basically saying how you may own and mine. Money service business, and it\'s. Own and mine Bitcoin without fear of prosecution."'
         },
         {
             role: "assistant",
-            content: "{\"terms\": [{\"term\": \"Federal Reserve\", \"definition\": \"The central banking system of the United States responsible for monetary policy\", \"historicalContext\": \"Established in 1913 after financial panics to provide stable monetary framework\"}, {\"term\": \"monetary policy\", \"definition\": \"Actions by central banks to influence money supply and interest rates\", \"historicalContext\": \"Modern monetary policy evolved from Keynesian economics in the 1930s\"}]}"
+            content: '{"events": [{"quote": "through FinCEN in March 2013", "event": "FIN-2013-G001", "description": "In March 2013, the Financial Crimes Enforcement Network (FinCEN) issued guidance FIN-2013-G001, marking the U.S. government\'s first formal policy on cryptocurrency. It classified all Bitcoin exchanges as Money Services Businesses (MSBs) subject to Bank Secrecy Act registration and reporting, while explicitly exempting individual miners and ordinary users from MSB obligations. This nuanced stance effectively told Americans, \'You may own and mine Bitcoin without fear of prosecution,\' even as law enforcement was closing in on Silk Road operators. In the weeks following the ruling, Bitcoin\'s market price quadrupled from $50 to $200, reflecting newfound regulatory clarity"}]}'
         },
         {
             role: "user",
-            content: "Companies are issuing more bonds and ETFs in the derivatives market"
+            content: 'Extract events from: "The 2008 financial crisis was triggered by the housing market collapse"'
         },
         {
             role: "assistant",
-            content: "{\"terms\": [{\"term\": \"bonds\", \"definition\": \"Debt securities where investors loan money to entities for defined periods at fixed interest rates\", \"historicalContext\": \"First government bonds trace to 1694 Bank of England, corporate bonds emerged in 1800s railroad expansion\"}, {\"term\": \"ETFs\", \"definition\": \"Exchange-Traded Funds - securities tracking indexes traded like stocks\", \"historicalContext\": \"First ETF launched 1993, revolutionized passive investing\"}, {\"term\": \"derivatives\", \"definition\": \"Financial contracts whose value depends on underlying assets\", \"historicalContext\": \"Modern derivatives market began with 1972 Chicago Mercantile Exchange currency futures\"}]}"
+            content: '{"events": [{"quote": "2008 financial crisis was triggered by the housing market collapse", "event": "2008 Financial Crisis", "description": "Global financial crisis triggered by the collapse of the U.S. housing bubble, subprime mortgage failures, and the bankruptcy of Lehman Brothers, leading to worldwide recession and unprecedented government interventions including bank bailouts and quantitative easing"}]}'
         },
         {
             role: "user",
-            content: "The company makes money by selling products"
+            content: 'Extract events from: "Inflation happens when prices rise"'
         },
         {
             role: "assistant",
-            content: "{\"terms\": []}"
+            content: '{"events": []}'
         },
         {
             role: "user",
-            content: text
+            content: `Extract events from: "${text}"`
         }
     ];
 
     try {
-        // Create messages array from conversation
-        const messages = conversation.map(msg => ({
-            role: msg.role === "user" ? "user" : "assistant",
-            content: msg.content
-        }));
+        const response = await callDeepSeek(null, null, messages, true);
+        console.log('Event detection response:', response);
 
-        const requestBody = {
-            model: 'deepseek-chat',
-            messages: messages,
-            stream: false,
-            temperature: 1.3
-        };
-
-        const response = await fetch('/api/deepseek', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                prompt: messages[messages.length - 1].content,
-                systemPrompt: "You are an helpful, intelligent assistant",
-                messages: messages // Pass full conversation
-            })
-        });
-
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
-
-        const data = await response.json();
-        const content = data.choices[0].message.content;
-
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            const json = JSON.parse(jsonMatch[0]);
-            if (json.terms && json.terms.length > 0) {
-                json.terms.forEach(t => {
-                    if (!detectedTerms.has(t.term.toLowerCase())) {
-                        detectedTerms.set(t.term.toLowerCase(), t);
-                        addTermCard(t);
-                    }
-                });
-                updateTranscriptionDisplay();
+        let json;
+        try {
+            json = JSON.parse(response);
+        } catch (parseError) {
+            console.error('Failed to parse events JSON:', parseError);
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                json = JSON.parse(jsonMatch[0]);
+            } else {
+                throw parseError;
             }
+        }
+
+        if (json.events && json.events.length > 0) {
+            json.events.forEach(e => {
+                const eventKey = e.event.toLowerCase().replace(/\s+/g, '-');
+                if (!detectedEvents.has(eventKey)) {
+                    e.chunkId = chunkId;
+                    e.searchTerms = generateEventSearchTerms(e.event);
+                    if (e.quote && !e.searchTerms.includes(e.quote)) {
+                        e.searchTerms.push(e.quote);
+                    }
+                    console.log(`Event detected: ${e.event}, search terms:`, e.searchTerms);
+                    detectedEvents.set(eventKey, e);
+                    addEventCard(e, eventKey);
+                }
+            });
+            updateTranscriptionDisplay();
+        }
+    } catch (e) {
+        console.error('Event detection error:', e);
+    }
+}
+
+async function processTextForTerms(text, chunkId) {
+    if (!text.trim()) return;
+    document.getElementById('processingIndicator').style.display = 'inline-flex';
+
+    const messages = [
+        {
+            role: "system",
+            content: "You are an economics lecture assistant specializing in identifying and explaining complex financial terminology."
+        },
+        {
+            role: "user",
+            content: `Extract complex economics/finance/business terms from lecture transcripts.
+
+DO NOT include basic terms (ex: money, company) unless part of a complex term.
+INCLUDE terms with specific meanings in economics (ex: Securities, Equity, Derivatives, Bonds).
+
+Focus on Technical economic terms and abbreviations
+
+Use a spartan tone of voice, return JSON only: {"terms": [{"term": "...", "definition": "...", "historicalContext": "..."}]}
+If no terms found, return: {"terms": []}
+
+Extract terms from: "The Federal Reserve uses quantitative easing to stimulate the economy"`
+        },
+        {
+            role: "assistant",
+            content: '{"terms": [{"term": "Federal Reserve", "definition": "The central banking system of the United States responsible for monetary policy", "historicalContext": "Established in 1913 after financial panics to provide a safer, more flexible monetary system"}, {"term": "quantitative easing", "definition": "Monetary policy where central banks purchase securities to increase money supply and lower interest rates", "historicalContext": "Widely used after 2008 financial crisis as unconventional monetary policy tool"}]}'
+        },
+        {
+            role: "user",
+            content: "Extract terms from: 'Companies issue bonds and equity to raise capital'"
+        },
+        {
+            role: "assistant",
+            content: '{"terms": [{"term": "bonds", "definition": "Debt securities where investors loan money to entities for a defined period at fixed interest rates", "historicalContext": "One of the oldest forms of securities, dating back to medieval Italian city-states"}, {"term": "equity", "definition": "Ownership interest in a company through stock shares", "historicalContext": "Modern equity markets evolved from 17th century Dutch East India Company shares"}]}'
+        },
+        {
+            role: "user",
+            content: "Extract terms from: 'The company has a lot of money in the bank'"
+        },
+        {
+            role: "assistant",
+            content: '{"terms": []}'
+        },
+        {
+            role: "user",
+            content: `Extract terms from: "${text}"`
+        }
+    ];
+
+    try {
+        const response = await callDeepSeek(null, null, messages, true);
+        console.log('Terms response:', response);
+
+        let json;
+        try {
+            json = JSON.parse(response);
+        } catch (parseError) {
+            console.error('Failed to parse terms JSON:', parseError);
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                json = JSON.parse(jsonMatch[0]);
+            } else {
+                throw parseError;
+            }
+        }
+
+        if (json.terms && json.terms.length > 0) {
+            json.terms.forEach(t => {
+                if (!detectedTerms.has(t.term.toLowerCase())) {
+                    detectedTerms.set(t.term.toLowerCase(), t);
+                    addTermCard(t);
+                }
+            });
+            updateTranscriptionDisplay();
         }
     } catch (e) {
         console.error('Term error:', e);
@@ -751,113 +793,6 @@ async function processTextForTerms(text, chunkId) {
         if (!isProcessing) {
             document.getElementById('processingIndicator').style.display = 'none';
         }
-    }
-}
-
-async function processTextForEvents(text, chunkId) {
-    if (!text.trim()) return;
-
-    // Build conversation history for event detection
-    const conversation = [
-        {
-            role: "user",
-            content: "Identify historical events mentioned in lecture transcripts. if the same event is mentioned multiple times, only return 1 occurrence of that event and quote the entire text from start to end. Return JSON: {\"events\": [{\"quote\": \"exact quote\", \"event\": \"event name\", \"description\": \"detailed description\"}]}"
-        },
-        {
-            role: "assistant",
-            content: "I'll identify historical events with their quotes and descriptions in JSON format."
-        },
-        {
-            role: "user",
-            content: "Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21, declaring that Bitcoin is treated as property rather than currency."
-        },
-        {
-            role: "assistant",
-            content: "{\"events\": [{\"quote\": \"IRS 2014, where roughly a year later, the IRS issued notice 2014-21\", \"event\": \"Notice 2014-21\", \"description\": \"IRS guidance issued in 2014 that classified Bitcoin and cryptocurrencies as property for tax purposes rather than currency, establishing foundational tax treatment for digital assets in the United States\"}]}"
-        },
-        {
-            role: "user",
-            content: "So where does Bitcoin gain its value? Bitcoin gained its value primarily through FinCEN in March 2013. It basically classified Bitcoin as a money service business."
-        },
-        {
-            role: "assistant",
-            content: "{\"events\": [{\"quote\": \"through FinCEN in March 2013\", \"event\": \"FIN-2013-G001\", \"description\": \"In March 2013, the Financial Crimes Enforcement Network (FinCEN) issued guidance FIN-2013-G001, marking the U.S. government's first formal policy on cryptocurrency. It classified all Bitcoin exchanges as Money Services Businesses (MSBs) subject to Bank Secrecy Act registration and reporting, while exempting individual miners and ordinary users from MSB obligations\"}]}"
-        },
-        {
-            role: "user",
-            content: "Inflation happens when prices rise across the economy"
-        },
-        {
-            role: "assistant",
-            content: "{\"events\": []}"
-        },
-        {
-            role: "user",
-            content: "The 2008 financial crisis was triggered by the housing market collapse"
-        },
-        {
-            role: "assistant",
-            content: "{\"events\": [{\"quote\": \"2008 financial crisis was triggered by the housing market collapse\", \"event\": \"2008 Financial Crisis\", \"description\": \"Global financial crisis triggered by the collapse of the U.S. housing bubble, subprime mortgage failures, and the bankruptcy of Lehman Brothers, leading to worldwide recession and unprecedented government interventions including bank bailouts and quantitative easing\"}]}"
-        },
-        {
-            role: "user",
-            content: text
-        }
-    ];
-
-    try {
-        const messages = conversation.map(msg => ({
-            role: msg.role === "user" ? "user" : "assistant",
-            content: msg.content
-        }));
-
-        const requestBody = {
-            model: 'deepseek-chat',
-            messages: messages,
-            stream: false,
-            temperature: 1.3
-        };
-
-        const response = await fetch('/api/deepseek', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                prompt: messages[messages.length - 1].content,
-                systemPrompt: "You are an helpful, intelligent assistant",
-                messages: messages
-            })
-        });
-
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
-
-        const data = await response.json();
-        const content = data.choices[0].message.content;
-        console.log('Event detection response:', content);
-
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            const json = JSON.parse(jsonMatch[0]);
-            if (json.events && json.events.length > 0) {
-                json.events.forEach(e => {
-                    const eventKey = e.event.toLowerCase().replace(/\s+/g, '-');
-                    if (!detectedEvents.has(eventKey)) {
-                        e.chunkId = chunkId;
-                        e.searchTerms = generateEventSearchTerms(e.event);
-                        if (e.quote && !e.searchTerms.includes(e.quote)) {
-                            e.searchTerms.push(e.quote);
-                        }
-                        console.log(`Event detected: ${e.event}, search terms:`, e.searchTerms);
-                        detectedEvents.set(eventKey, e);
-                        addEventCard(e, eventKey);
-                    }
-                });
-                updateTranscriptionDisplay();
-            }
-        }
-    } catch (e) {
-        console.error('Event detection error:', e);
     }
 }
 
@@ -945,7 +880,7 @@ function addEventCard(eventData, eventKey) {
 }
 
 function scrollToElement(element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    element.scrollIntoView({behavior: 'smooth', block: 'center'});
     element.classList.add('highlight-focus');
     setTimeout(() => {
         element.classList.remove('highlight-focus');
@@ -1197,7 +1132,6 @@ function escapeHtml(text) {
 }
 
 
-
 // Sidebar Toggle Function
 function initializeSidebar() {
     const sidebar = document.querySelector('.sidebar');
@@ -1280,7 +1214,7 @@ function initNudgeResizer() {
     document.addEventListener('mousemove', e => {
         if (!dragging) return;
 
-        const { top, height } = container.getBoundingClientRect();
+        const {top, height} = container.getBoundingClientRect();
         const relY = e.clientY - top;
         let pct = (relY / height) * 100;
 
@@ -1320,7 +1254,7 @@ function initNotesPlaceholder() {
     }
 
     // Monitor for changes
-    notesArea.addEventListener('input', function() {
+    notesArea.addEventListener('input', function () {
         if (this.textContent.trim()) {
             this.removeAttribute('data-placeholder');
         } else {
@@ -1329,7 +1263,7 @@ function initNotesPlaceholder() {
     });
 
     // Handle focus to ensure placeholder works
-    notesArea.addEventListener('focus', function() {
+    notesArea.addEventListener('focus', function () {
         // Clean up any browser-inserted elements if truly empty
         if (!this.textContent.trim()) {
             this.innerHTML = '';
@@ -1337,7 +1271,6 @@ function initNotesPlaceholder() {
         }
     });
 }
-
 
 
 document.addEventListener('DOMContentLoaded', async () => {

@@ -947,3 +947,20 @@ button:disabled {
     flex: 1;
     overflow: hidden;
 }
+
+/* Static audio bars for file visualization */
+.visualizer-bar.static-bar {
+    background: var(--accent);
+    transition: none;
+    cursor: pointer;
+}
+
+.visualizer-bar.static-bar:hover {
+    opacity: 1 !important;
+    background: var(--accent-hover);
+}
+
+/* Ensure visualizer area has relative positioning for duration text */
+#audioVisualizerInline {
+    position: relative;
+}

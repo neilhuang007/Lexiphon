@@ -119,3 +119,74 @@ const AudioVisualizer = {
 
 // Export for use in script.js
 window.AudioVisualizer = AudioVisualizer;
+
+// Audio File Visualizer Module - Simple bars like recording
+const AudioFileVisualizer = {
+    animationId: null,
+    isPlaying: false,
+
+    visualizeFile(file) {
+        const container = document.getElementById('visualizerContainer');
+        if (!container) return;
+
+        // Clear any existing content
+        container.innerHTML = '';
+
+        // Create the same 16 bars as recording visualization
+        const barCount = 16;
+        for (let i = 0; i < barCount; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'visualizer-bar';
+            container.appendChild(bar);
+        }
+
+        // Start animation to show file is loaded
+        this.startFileAnimation();
+    },
+
+    startFileAnimation() {
+        const bars = document.querySelectorAll('.visualizer-bar');
+        let frame = 0;
+
+        const animate = () => {
+            frame++;
+            bars.forEach((bar, i) => {
+                // Create a wave effect
+                const offset = (frame + i * 10) * 0.05;
+                const height = Math.sin(offset) * 8 + 8; // 0-16px range
+                bar.style.height = `${Math.max(4, height)}px`;
+                bar.style.opacity = '0.7';
+            });
+
+            this.animationId = requestAnimationFrame(animate);
+        };
+
+        animate();
+        this.isPlaying = true;
+    },
+
+    stop() {
+        if (this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
+        }
+
+        // Reset bars to minimal height
+        const bars = document.querySelectorAll('.visualizer-bar');
+        bars.forEach(bar => {
+            bar.style.height = '4px';
+            bar.style.opacity = '0.7';
+        });
+
+        this.isPlaying = false;
+    },
+
+    clear() {
+        this.stop();
+        const container = document.getElementById('visualizerContainer');
+        if (container) container.innerHTML = '';
+    }
+};
+
+// Export for use in script.js
+window.AudioFileVisualizer = AudioFileVisualizer;

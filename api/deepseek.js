@@ -17,24 +17,19 @@ export default async function handler(req, res) {
     }
 
     try {
-        const { prompt, systemPrompt, messages } = req.body;
+        const { prompt, systemPrompt, messages, useJsonOutput = false } = req.body;
 
         console.log('DeepSeek API Key:', process.env.DEEPSEEK_API_KEY ? 'Present' : 'MISSING!');
-        console.log('Has messages:', !!messages);
-        console.log('Prompt length:', prompt?.length || 0);
 
         let requestMessages;
 
-        // If messages array provided, use it (for conversation format)
+        // If messages array provided, use it directly (for few-shot)
         if (messages && Array.isArray(messages)) {
-            requestMessages = [
-                {role: 'system', content: systemPrompt},
-                ...messages.slice(0, -1) // All messages except the last one which is in prompt
-            ];
+            requestMessages = messages;
         } else {
-            // Fallback to simple format
+            // Fallback to simple prompt/systemPrompt
             requestMessages = [
-                {role: 'system', content: systemPrompt},
+                {role: 'system', content: systemPrompt || 'You are a helpful assistant.'},
                 {role: 'user', content: prompt}
             ];
         }
@@ -43,8 +38,14 @@ export default async function handler(req, res) {
             model: 'deepseek-chat',
             messages: requestMessages,
             stream: false,
-            temperature: 1.3
+            temperature: 1.3,
+            max_tokens: 2000 // Set reasonable max to prevent JSON truncation
         };
+
+        // Add response_format for JSON output if requested
+        if (useJsonOutput) {
+            requestBody.response_format = { type: 'json_object' };
+        }
 
         console.log('Request to DeepSeek:', JSON.stringify(requestBody, null, 2));
 
