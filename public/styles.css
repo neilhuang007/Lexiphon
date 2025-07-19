@@ -503,7 +503,7 @@ button {
 }
 
 button:hover:not(:disabled) {
-    background: var(--gray-50);
+    /*background: var(--gray-50);*/
     border-color: var(--gray-300);
 }
 
@@ -519,12 +519,12 @@ button:disabled {
 .primary-btn {
     background: var(--gray-900);
     color: white;
-    border-color: var(--gray-900);
+    /*border-color: var(--gray-900);*/
 }
 
 .primary-btn:hover:not(:disabled) {
-    background: var(--gray-800);
-    border-color: var(--gray-800);
+    /*background: var(--gray-800);*/
+    /*border-color: var(--gray-800);*/
 }
 
 .primary-btn.recording {
@@ -539,30 +539,74 @@ button:disabled {
     background: var(--background);
     border: 1px solid var(--border-light);
     border-radius: 8px;
-    padding: 0 14px 5px;
+    padding: 0 12px;
     display: flex;
     align-items: flex-end;
-    justify-content: left;
-    gap: 2px;
-}
-
-.visualizer-bar {
-    width: 2px;
-    height: 4px;
-    background: var(--gray-300);
-    transition: height 0.05s ease-out;
-    border-radius: 1px;
-    opacity: 1;
+    overflow: hidden;
+    min-width: 200px;
 }
 
 #visualizerContainer {
     display: flex;
     flex-direction: row;
     align-items: flex-end;
-    justify-content: left;
+    justify-content: flex-start;
     gap: 2px;
     height: 100%;
     width: 100%;
+    padding-bottom: 5px;
+    transition: opacity 0.3s ease;
+    flex-wrap: nowrap;
+}
+
+.visualizer-bar {
+    width: 2px;
+    min-width: 2px;
+    max-width: 2px;
+    height: 4px;
+    background: var(--gray-400);
+    transition: all 0.1s ease-out;
+    border-radius: 1px;
+    flex-shrink: 0;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+    .visualizer-bar {
+        width: 1.5px;
+        min-width: 1.5px;
+        max-width: 1.5px;
+    }
+}
+
+/* Enhance bars during recording */
+.primary-btn.recording ~ .audio-visualizer-inline .visualizer-bar {
+    background: var(--accent);
+}
+
+/* Subtle animation for file playback bars */
+.audio-visualizer-inline.file-mode .visualizer-bar {
+    background: var(--gray-600);
+    opacity: 0.8;
+}
+
+/* Ensure bars fit properly when there are many */
+@media (min-width: 1400px) {
+    #visualizerContainer {
+        gap: 2.5px;
+    }
+}
+
+@media (max-width: 768px) {
+    #visualizerContainer {
+        gap: 1.5px;
+    }
+
+    .visualizer-bar {
+        width: 1.5px;
+        min-width: 1.5px;
+        max-width: 1.5px;
+    }
 }
 
 /* Right Panel - Terms */
@@ -915,6 +959,7 @@ button:disabled {
 }
 
 /* Responsive */
+/* Responsive */
 @media (max-width: 1024px) {
     .app-container {
         grid-template-columns: 1fr;
@@ -927,10 +972,35 @@ button:disabled {
 
     .controls-section {
         padding: 16px 20px;
+        flex-wrap: wrap;
+        gap: 10px;
     }
 
     .main-container {
         padding: 20px;
+    }
+
+    .audio-visualizer-inline {
+        width: 100%;
+        flex: 1 1 100%;
+        order: 2;
+        margin-top: 10px;
+    }
+
+    .button-group {
+        order: 1;
+    }
+
+    .language-selector {
+        order: 3;
+        margin-left: 0;
+        margin-top: 10px;
+    }
+
+    .status-bar {
+        order: 4;
+        margin-left: 0;
+        margin-top: 10px;
     }
 }
 

@@ -270,12 +270,12 @@ async function handleAudioUpload(e) {
 
     updateStatus('transcribing');
 
-    // Show simple visualization bars
-    if (window.AudioFileVisualizer) {
-        window.AudioFileVisualizer.visualizeFile(file);
-    }
-
     try {
+        // Process audio file for visualization
+        if (window.AudioVisualizer) {
+            await window.AudioVisualizer.processAudioFile(file);
+        }
+
         // Convert file to base64
         const reader = new FileReader();
         const base64Audio = await new Promise((resolve) => {
@@ -321,11 +321,6 @@ async function handleAudioUpload(e) {
     } finally {
         updateStatus('ready');
         e.target.value = '';
-
-        // Stop visualization
-        if (window.AudioFileVisualizer) {
-            window.AudioFileVisualizer.stop();
-        }
     }
 }
 
@@ -951,6 +946,9 @@ async function toggleRecording() {
 
         if (window.AudioVisualizer) {
             window.AudioVisualizer.stop();
+            // Reset to default bar display
+            window.AudioVisualizer.mode = 'realtime';
+            window.AudioVisualizer.createBars();
         }
 
         updateStatus('ready');
@@ -1008,6 +1006,15 @@ function clearContent() {
     document.getElementById('transcriptionArea').innerHTML = `<div class="transcription-placeholder">Start recording or upload an audio file to begin transcription</div>`;
     document.getElementById('termsContainer').innerHTML = `<div class="no-terms">Economic terms and events will appear here as they're detected</div>`;
     updateUploadStatus();
+
+    // Reset visualizer
+    if (window.AudioVisualizer) {
+        window.AudioVisualizer.destroy();
+        // Small delay to ensure clean reset
+        setTimeout(() => {
+            window.AudioVisualizer.createBars();
+        }, 100);
+    }
 }
 
 function applyHighlightsWithPriority(text, chunkId) {
@@ -1286,6 +1293,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         await requestMicrophonePermission();
     }
 
+    // Initialize visualizer bars
+    if (window.AudioVisualizer) {
+        window.AudioVisualizer.createBars();
+    }
+
     // Record button
     document.getElementById('recordBtn').addEventListener('click', toggleRecording);
     document.getElementById('clear-btn').addEventListener('click', clearContent);
@@ -1299,6 +1311,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('audioUpload element not found!');
     }
 
+    // Handle window resize for visualizer
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            if (window.AudioVisualizer) {
+                if (window.AudioVisualizer.mode === 'file' && window.AudioVisualizer.originalFileAmplitudes.length > 0) {
+                    // Reprocess amplitudes for new bar count without re-decoding
+                    window.AudioVisualizer.reprocessFileAmplitudes(window.AudioVisualizer.originalFileAmplitudes);
+                } else if (window.AudioVisualizer.mode === 'realtime' && window.AudioVisualizer.isInitialized) {
+                    // Recreate bars for realtime mode
+                    window.AudioVisualizer.createBars();
+                } else {
+                    // Default bars
+                    window.AudioVisualizer.createBars();
+                }
+            }
+        }, 250);
+    });
+
     window.requestMicrophonePermission = requestMicrophonePermission;
 
     initializeSidebar();
@@ -1306,6 +1338,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     initNudgeResizer();
 
     initNotesPlaceholder()
+
+    // Initialize visualizer bars after container is ready
+    if (window.AudioVisualizer) {
+        window.AudioVisualizer.waitForContainerReady(() => {
+            window.AudioVisualizer.createBars();
+        });
+    }
 
     console.log('Ready.');
 });
