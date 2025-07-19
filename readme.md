@@ -33,8 +33,53 @@ A browser-based lecture transcription and analysis tool for finance and business
 
 - Node.js >=14
 - npm (or Yarn)
-- A Vercel account (optional, for easy deployment)
+- A Vercel account (mandatory for storage of API keys)
 - Modern browser (Chrome, Firefox, Edge)
+
+## Environment Variables
+
+On Vercel, set the following environment variables to store your AI keys:
+
+- `ELEVENLABS_API_KEY`: Your ElevenLabs AI key
+- `DEEPSEEK_API_KEY`: Your DeepSeek AI key
+  To configure these keys on Vercel and locally, follow these steps:
+
+1. In the Vercel Dashboard
+    - Select your project, go to **Settings → Environment Variables**
+    - Click **Add** and enter:
+        - Name: `ELEVENLABS_API_KEY`
+        - Value: _your ElevenLabs key_
+        - Environment: _Development, Preview, Production_ (as needed)
+    - Repeat for `DEEPSEEK_API_KEY`
+
+2. Using the Vercel CLI
+   ```bash
+   vercel env add ELEVENLABS_API_KEY production
+   vercel env add DEEPSEEK_API_KEY production
+   ```
+   To verify:
+   ```bash
+   vercel env ls
+   ```
+
+3. Pull variables into a local `.env.local`
+   ```bash
+   vercel env pull .env.local
+   ```
+
+4. Add `.env.local` to `.gitignore`
+
+5. In your app, read them via `process.env` (e.g., in Next.js or Node):
+   ```javascript
+   const elevenlabsKey = process.env.ELEVENLABS_API_KEY;
+   const deepseekKey   = process.env.DEEPSEEK_API_KEY;
+   ```  
+
+6. (Optional) Commit a template file `.env.example`:
+   ```bash
+   ELEVENLABS_API_KEY=
+   DEEPSEEK_API_KEY=
+   ```
 
 ## Install & Development
 
