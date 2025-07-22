@@ -1,0 +1,23 @@
+{
+  "systemPrompt": "You are a history lecture assistant specializing in identifying and explaining complex historical terminology and concepts.",
+  "taskDescription": "Extract complex historical terms, movements, and concepts from lecture transcripts.\n\nDO NOT include basic terms unless part of a complex concept.\nINCLUDE historical movements, political systems, cultural phenomena, and specialized terminology.\n\nUse a spartan tone of voice, return JSON only: {\"terms\": [{\"term\": \"...\", \"definition\": \"...\", \"historicalContext\": \"...\"}]}\nIf no terms found, return: {\"terms\": []}",
+  "examples": [
+    {
+      "input": "The Enlightenment influenced the development of constitutional monarchy",
+      "output": {
+        "terms": [
+          {
+            "term": "Enlightenment",
+            "definition": "18th-century intellectual movement emphasizing reason, science, and individual rights over tradition and religious authority",
+            "historicalContext": "Peaked 1715-1789, centered in France but spread across Europe and Americas, influencing democratic revolutions"
+          },
+          {
+            "term": "constitutional monarchy",
+            "definition": "System of government where monarch's powers are limited by constitution and elected parliament",
+            "historicalContext": "Developed in England after Glorious Revolution of 1688, became model for many European nations in 19th century"
+          }
+        ]
+      }
+    }
+  ]
+}

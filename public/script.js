@@ -20,6 +20,77 @@ let activeUploads = 0;
 const MAX_CONCURRENT_UPLOADS = 4;
 const BASE_CHUNK_SIZE = 25;
 
+// Category management
+let categoryPrompts = {
+    finance: { terms: null, events: null },
+    cs: { terms: null, events: null },
+    history: { terms: null, events: null }
+};
+let currentCategory = 'finance';
+
+async function loadCategoryPrompts() {
+    try {
+        // Load all prompt files - use relative paths instead of absolute
+        const promptFiles = [
+            { category: 'finance', type: 'terms', path: './prompts/finance-terms.json' },
+            { category: 'finance', type: 'events', path: './prompts/finance-events.json' },
+            { category: 'cs', type: 'terms', path: './prompts/cs-terms.json' },
+            { category: 'cs', type: 'events', path: './prompts/cs-events.json' },
+            { category: 'history', type: 'terms', path: './prompts/history-terms.json' },
+            { category: 'history', type: 'events', path: './prompts/history-events.json' }
+        ];
+
+        const loadPromises = promptFiles.map(async (file) => {
+            try {
+                const response = await fetch(file.path);
+                if (response.ok) {
+                    const data = await response.json();
+                    categoryPrompts[file.category][file.type] = data;
+                    console.log(`Loaded ${file.category} ${file.type} prompts`);
+                } else {
+                    throw new Error(`Failed to load ${file.path}: ${response.status}`);
+                }
+            } catch (e) {
+                console.error(`Failed to load ${file.path}:`, e);
+                throw e;
+            }
+        });
+
+        await Promise.all(loadPromises);
+        console.log('All prompts loaded:', categoryPrompts);
+    } catch (error) {
+        console.error('Error loading prompts:', error);
+        throw new Error('Failed to load prompt configuration files');
+    }
+}
+
+function switchCategory(category) {
+    currentCategory = category;
+    console.log('Switched to category:', category);
+
+    // Update UI - remove active from all items
+    document.querySelectorAll('.category-item').forEach(item => {
+        item.classList.remove('active');
+    });
+
+    // Add active to clicked item
+    const activeItem = document.querySelector(`.category-item[data-category="${category}"]`);
+    if (activeItem) {
+        activeItem.classList.add('active');
+    }
+
+    // Update header
+    const headerText = {
+        finance: 'Finance & Business',
+        cs: 'Computer Science',
+        history: 'History'
+    };
+    document.querySelector('.app-header h3').textContent = headerText[category] || 'Finance & Business';
+
+    // Clear existing terms/events when switching
+    clearContent();
+}
+
 async function callDeepSeek(prompt, systemPrompt = "You are a helpful assistant.", messages = null, useJsonOutput = false) {
     const body = messages
         ? {messages, useJsonOutput}
@@ -374,7 +445,6 @@ function appendToTranscription(text) {
     }
 }
 
-
 function getCompleteWordChunks(txt, forceProcessRemaining = false, chunkSize = BASE_CHUNK_SIZE) {
     const words = txt.split(/\s+/).filter(w => w.length > 0);
     const chunks = [];
@@ -625,49 +695,44 @@ function updateTranscriptionDisplay() {
 async function processTextForEvents(text, chunkId) {
     if (!text.trim()) return;
 
+    const promptData = categoryPrompts[currentCategory]?.events;
+    if (!promptData) {
+        throw new Error(`No event prompts loaded for category: ${currentCategory}`);
+    }
+
+    // Build messages from loaded examples
     const messages = [
         {
             role: "system",
-            content: "You are a lecture assistant studying finance history, specializing in identifying historical events and their economic significance."
+            content: promptData.systemPrompt
         },
         {
             role: "user",
-            content: `Evaluate the transcript provided and identify historical events referred to. Use Spartan tone of voice and return in JSON with format {"events": [{"quote": "", "event": "", "description": ""}]} If no events found, return: {"events": []}
-Extract events from: "Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21, declaring that Bitcoin is treated. As property rather than currency."`
+            content: promptData.taskDescription + `\nExtract events from: "${promptData.examples[0].input}"`
         },
         {
             role: "assistant",
-            content: '{"events": [{"quote": "Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21", "event": "Notice 2014-21", "description": "IRS guidance issued in 2014 that classified Bitcoin and cryptocurrencies as property for tax purposes rather than currency, establishing foundational tax treatment for digital assets in the United States"}]}'
-        },
-        {
-            role: "user",
-            content: 'Extract events from: "So where does Bitcoin gain its value? Bitcoin gained its value primarily through FinCEN in March 2013. It basically classified Bitcoin as Classified Bitcoin as a money service business. That\'s actually pretty cool. The subject is basically saying how you may own and mine. Money service business, and it\'s. Own and mine Bitcoin without fear of prosecution."'
-        },
-        {
-            role: "assistant",
-            content: '{"events": [{"quote": "through FinCEN in March 2013", "event": "FIN-2013-G001", "description": "In March 2013, the Financial Crimes Enforcement Network (FinCEN) issued guidance FIN-2013-G001, marking the U.S. government\'s first formal policy on cryptocurrency. It classified all Bitcoin exchanges as Money Services Businesses (MSBs) subject to Bank Secrecy Act registration and reporting, while explicitly exempting individual miners and ordinary users from MSB obligations. This nuanced stance effectively told Americans, \'You may own and mine Bitcoin without fear of prosecution,\' even as law enforcement was closing in on Silk Road operators. In the weeks following the ruling, Bitcoin\'s market price quadrupled from $50 to $200, reflecting newfound regulatory clarity"}]}'
-        },
-        {
-            role: "user",
-            content: 'Extract events from: "The 2008 financial crisis was triggered by the housing market collapse"'
-        },
-        {
-            role: "assistant",
-            content: '{"events": [{"quote": "2008 financial crisis was triggered by the housing market collapse", "event": "2008 Financial Crisis", "description": "Global financial crisis triggered by the collapse of the U.S. housing bubble, subprime mortgage failures, and the bankruptcy of Lehman Brothers, leading to worldwide recession and unprecedented government interventions including bank bailouts and quantitative easing"}]}'
-        },
-        {
-            role: "user",
-            content: 'Extract events from: "Inflation happens when prices rise"'
-        },
-        {
-            role: "assistant",
-            content: '{"events": []}'
-        },
-        {
-            role: "user",
-            content: `Extract events from: "${text}"`
+            content: JSON.stringify(promptData.examples[0].output)
         }
     ];
+
+    // Add remaining examples
+    for (let i = 1; i < promptData.examples.length; i++) {
+        messages.push({
+            role: "user",
+            content: `Extract events from: "${promptData.examples[i].input}"`
+        });
+        messages.push({
+            role: "assistant",
+            content: JSON.stringify(promptData.examples[i].output)
+        });
+    }
+
+    // Add the actual text to process
+    messages.push({
+        role: "user",
+        content: `Extract events from: "${text}"`
+    });
 
     try {
         const response = await callDeepSeek(null, null, messages, true);
@@ -704,6 +769,7 @@ Extract events from: "Another event is IRS 2014, where roughly a year later, the
         }
     } catch (e) {
         console.error('Event detection error:', e);
+        throw e;
     }
 }
 
@@ -711,50 +777,44 @@ async function processTextForTerms(text, chunkId) {
     if (!text.trim()) return;
     document.getElementById('processingIndicator').style.display = 'inline-flex';
 
+    const promptData = categoryPrompts[currentCategory]?.terms;
+    if (!promptData) {
+        throw new Error(`No term prompts loaded for category: ${currentCategory}`);
+    }
+
+    // Build messages from loaded examples
     const messages = [
         {
             role: "system",
-            content: "You are an economics lecture assistant specializing in identifying and explaining complex financial terminology."
+            content: promptData.systemPrompt
         },
         {
             role: "user",
-            content: `Extract complex economics/finance/business terms from lecture transcripts.
-
-DO NOT include basic terms (ex: money, company) unless part of a complex term.
-INCLUDE terms with specific meanings in economics (ex: Securities, Equity, Derivatives, Bonds).
-
-Focus on Technical economic terms and abbreviations
-
-Use a spartan tone of voice, return JSON only: {"terms": [{"term": "...", "definition": "...", "historicalContext": "..."}]}
-If no terms found, return: {"terms": []}
-
-Extract terms from: "The Federal Reserve uses quantitative easing to stimulate the economy"`
+            content: promptData.taskDescription + `\n\nExtract terms from: "${promptData.examples[0].input}"`
         },
         {
             role: "assistant",
-            content: '{"terms": [{"term": "Federal Reserve", "definition": "The central banking system of the United States responsible for monetary policy", "historicalContext": "Established in 1913 after financial panics to provide a safer, more flexible monetary system"}, {"term": "quantitative easing", "definition": "Monetary policy where central banks purchase securities to increase money supply and lower interest rates", "historicalContext": "Widely used after 2008 financial crisis as unconventional monetary policy tool"}]}'
-        },
-        {
-            role: "user",
-            content: "Extract terms from: 'Companies issue bonds and equity to raise capital'"
-        },
-        {
-            role: "assistant",
-            content: '{"terms": [{"term": "bonds", "definition": "Debt securities where investors loan money to entities for a defined period at fixed interest rates", "historicalContext": "One of the oldest forms of securities, dating back to medieval Italian city-states"}, {"term": "equity", "definition": "Ownership interest in a company through stock shares", "historicalContext": "Modern equity markets evolved from 17th century Dutch East India Company shares"}]}'
-        },
-        {
-            role: "user",
-            content: "Extract terms from: 'The company has a lot of money in the bank'"
-        },
-        {
-            role: "assistant",
-            content: '{"terms": []}'
-        },
-        {
-            role: "user",
-            content: `Extract terms from: "${text}"`
+            content: JSON.stringify(promptData.examples[0].output)
         }
     ];
+
+    // Add remaining examples
+    for (let i = 1; i < promptData.examples.length; i++) {
+        messages.push({
+            role: "user",
+            content: `Extract terms from: "${promptData.examples[i].input}"`
+        });
+        messages.push({
+            role: "assistant",
+            content: JSON.stringify(promptData.examples[i].output)
+        });
+    }
+
+    // Add the actual text to process
+    messages.push({
+        role: "user",
+        content: `Extract terms from: "${text}"`
+    });
 
     try {
         const response = await callDeepSeek(null, null, messages, true);
@@ -784,6 +844,7 @@ Extract terms from: "The Federal Reserve uses quantitative easing to stimulate t
         }
     } catch (e) {
         console.error('Term error:', e);
+        throw e;
     } finally {
         if (!isProcessing) {
             document.getElementById('processingIndicator').style.display = 'none';
@@ -791,12 +852,11 @@ Extract terms from: "The Federal Reserve uses quantitative easing to stimulate t
     }
 }
 
-// Add this missing function after processTextForEvents
 function generateEventSearchTerms(eventName) {
     const terms = [eventName];
     const lowerEvent = eventName.toLowerCase();
 
-    // Extract key parts of the event name
+    // Finance events
     if (lowerEvent.includes('financial crisis') || lowerEvent.includes('2008')) {
         terms.push('financial crisis', 'crisis', '2008', 'subprime');
     }
@@ -817,6 +877,28 @@ function generateEventSearchTerms(eventName) {
     }
     if (lowerEvent.includes('fincen') || lowerEvent.includes('2013')) {
         terms.push('FinCEN', 'March 2013', '2013', 'money service', 'Bitcoin');
+    }
+
+    // CS events
+    if (lowerEvent.includes('iphone')) {
+        terms.push('iPhone', 'Apple', 'launch', '2007', 'smartphone');
+    }
+    if (lowerEvent.includes('windows')) {
+        terms.push('Windows', 'Microsoft', 'operating system', 'OS');
+    }
+    if (lowerEvent.includes('internet')) {
+        terms.push('Internet', 'ARPANET', 'world wide web', 'WWW');
+    }
+
+    // History events
+    if (lowerEvent.includes('berlin wall')) {
+        terms.push('Berlin Wall', 'wall', 'Berlin', '1989', 'fall');
+    }
+    if (lowerEvent.includes('world war')) {
+        terms.push('World War', 'war', 'WWI', 'WWII', 'global conflict');
+    }
+    if (lowerEvent.includes('revolution')) {
+        terms.push('Revolution', 'revolutionary', 'uprising', 'revolt');
     }
 
     // Add partial matches from the event name
@@ -852,7 +934,6 @@ function addTermCard(termData) {
     container.insertBefore(card, container.firstChild);
 }
 
-// Replace the addEventCard function
 function addEventCard(eventData, eventKey) {
     const container = document.getElementById('termsContainer');
     const placeholder = container.querySelector('.no-terms');
@@ -904,7 +985,6 @@ function scrollToLastOccurrence(searchText, isEvent = false) {
         scrollToElement(lastElement);
     }
 }
-
 
 function highlightCard(id) {
     const card = document.getElementById(id);
@@ -1138,7 +1218,6 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-
 // Sidebar Toggle Function
 function initializeSidebar() {
     const sidebar = document.querySelector('.sidebar');
@@ -1162,8 +1241,17 @@ function initializeSidebar() {
             appContainer.classList.add('sidebar-collapsed');
         }
     }
-}
 
+    // Add category click handlers
+    document.querySelectorAll('.category-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const category = item.getAttribute('data-category');
+            if (category) {
+                switchCategory(category);
+            }
+        });
+    });
+}
 
 function initNudgeResizer() {
     const container = document.querySelector('.main-container');
@@ -1279,9 +1367,16 @@ function initNotesPlaceholder() {
     });
 }
 
-
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('Init EconSpeak with DeepSeek');
+
+    try {
+        // Load prompts first
+        await loadCategoryPrompts();
+    } catch (error) {
+        showError('Failed to load configuration. Please check prompt files.');
+        console.error(error);
+    }
 
     detectBrowser();
 

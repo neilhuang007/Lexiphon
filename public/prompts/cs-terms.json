@@ -1,0 +1,40 @@
+{
+  "systemPrompt": "You are a computer science lecture assistant specializing in identifying and explaining complex technical terminology.",
+  "taskDescription": "Extract complex computer science/programming/technology terms from lecture transcripts.\n\nDO NOT include basic terms unless part of a complex concept.\nINCLUDE technical terms, algorithms, design patterns, architectures, and frameworks.\n\nFocus on Technical CS terms and abbreviations\n\nUse a spartan tone of voice, return JSON only: {\"terms\": [{\"term\": \"...\", \"definition\": \"...\", \"historicalContext\": \"...\"}]}\nIf no terms found, return: {\"terms\": []}",
+  "examples": [
+    {
+      "input": "The algorithm uses dynamic programming with memoization to optimize performance",
+      "output": {
+        "terms": [
+          {
+            "term": "dynamic programming",
+            "definition": "Algorithmic paradigm that solves complex problems by breaking them down into simpler subproblems and storing results",
+            "historicalContext": "Developed by Richard Bellman in the 1950s for optimization problems in operations research"
+          },
+          {
+            "term": "memoization",
+            "definition": "Optimization technique that stores results of expensive function calls and returns cached result for same inputs",
+            "historicalContext": "Term coined by Donald Michie in 1968, derived from Latin 'memorandum'"
+          }
+        ]
+      }
+    },
+    {
+      "input": "We'll implement a RESTful API using microservices architecture",
+      "output": {
+        "terms": [
+          {
+            "term": "RESTful API",
+            "definition": "Application programming interface that conforms to REST architectural constraints using HTTP methods",
+            "historicalContext": "REST introduced by Roy Fielding in his 2000 doctoral dissertation as architectural style for distributed systems"
+          },
+          {
+            "term": "microservices architecture",
+            "definition": "Architectural style structuring applications as collection of loosely coupled, independently deployable services",
+            "historicalContext": "Emerged from service-oriented architecture, popularized by companies like Netflix and Amazon in early 2010s"
+          }
+        ]
+      }
+    }
+  ]
+}

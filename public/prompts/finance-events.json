@@ -1,0 +1,48 @@
+{
+  "systemPrompt": "You are a lecture assistant studying finance history, specializing in identifying historical events and their economic significance.",
+  "taskDescription": "Evaluate the transcript provided and identify historical events referred to. Use Spartan tone of voice and return in JSON with format {\"events\": [{\"quote\": \"\", \"event\": \"\", \"description\": \"\"}]} If no events found, return: {\"events\": []}",
+  "examples": [
+    {
+      "input": "Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21, declaring that Bitcoin is treated. As property rather than currency.",
+      "output": {
+        "events": [
+          {
+            "quote": "Another event is IRS 2014, where roughly a year later, the IRS issued notice 2014-21",
+            "event": "Notice 2014-21",
+            "description": "IRS guidance issued in 2014 that classified Bitcoin and cryptocurrencies as property for tax purposes rather than currency, establishing foundational tax treatment for digital assets in the United States"
+          }
+        ]
+      }
+    },
+    {
+      "input": "So where does Bitcoin gain its value? Bitcoin gained its value primarily through FinCEN in March 2013. It basically classified Bitcoin as Classified Bitcoin as a money service business. That's actually pretty cool. The subject is basically saying how you may own and mine. Money service business, and it's. Own and mine Bitcoin without fear of prosecution.",
+      "output": {
+        "events": [
+          {
+            "quote": "through FinCEN in March 2013",
+            "event": "FIN-2013-G001",
+            "description": "In March 2013, the Financial Crimes Enforcement Network (FinCEN) issued guidance FIN-2013-G001, marking the U.S. government's first formal policy on cryptocurrency. It classified all Bitcoin exchanges as Money Services Businesses (MSBs) subject to Bank Secrecy Act registration and reporting, while explicitly exempting individual miners and ordinary users from MSB obligations. This nuanced stance effectively told Americans, 'You may own and mine Bitcoin without fear of prosecution,' even as law enforcement was closing in on Silk Road operators. In the weeks following the ruling, Bitcoin's market price quadrupled from $50 to $200, reflecting newfound regulatory clarity"
+          }
+        ]
+      }
+    },
+    {
+      "input": "The 2008 financial crisis was triggered by the housing market collapse",
+      "output": {
+        "events": [
+          {
+            "quote": "2008 financial crisis was triggered by the housing market collapse",
+            "event": "2008 Financial Crisis",
+            "description": "Global financial crisis triggered by the collapse of the U.S. housing bubble, subprime mortgage failures, and the bankruptcy of Lehman Brothers, leading to worldwide recession and unprecedented government interventions including bank bailouts and quantitative easing"
+          }
+        ]
+      }
+    },
+    {
+      "input": "Inflation happens when prices rise",
+      "output": {
+        "events": []
+      }
+    }
+  ]
+}
