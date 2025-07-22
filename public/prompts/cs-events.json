@@ -1,0 +1,36 @@
+{
+  "systemPrompt": "You are a computer science lecture assistant specializing in identifying significant technological events and milestones.",
+  "taskDescription": "Evaluate the transcript and identify significant technological events, product launches, or breakthroughs. Return JSON: {\"events\": [{\"quote\": \"\", \"event\": \"\", \"description\": \"\"}]}",
+  "examples": [
+    {
+      "input": "The iPhone launch in 2007 revolutionized mobile computing",
+      "output": {
+        "events": [
+          {
+            "quote": "iPhone launch in 2007",
+            "event": "iPhone Launch",
+            "description": "Apple's introduction of the iPhone on January 9, 2007, revolutionized mobile computing by combining phone, iPod, and internet communicator into one touch-screen device"
+          }
+        ]
+      }
+    },
+    {
+      "input": "ARPANET sent its first message in 1969, marking the birth of the internet",
+      "output": {
+        "events": [
+          {
+            "quote": "ARPANET sent its first message in 1969",
+            "event": "ARPANET First Message",
+            "description": "October 29, 1969, the first ARPANET message 'LO' was sent between UCLA and Stanford, marking the birth of what would become the modern internet"
+          }
+        ]
+      }
+    },
+    {
+      "input": "Variables are stored in memory",
+      "output": {
+        "events": []
+      }
+    }
+  ]
+}

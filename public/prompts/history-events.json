@@ -1,0 +1,36 @@
+{
+  "systemPrompt": "You are a history lecture assistant specializing in identifying significant historical events.",
+  "taskDescription": "Identify historical events mentioned in the transcript. Return JSON: {\"events\": [{\"quote\": \"\", \"event\": \"\", \"description\": \"\"}]}",
+  "examples": [
+    {
+      "input": "The fall of the Berlin Wall in 1989 marked the end of the Cold War",
+      "output": {
+        "events": [
+          {
+            "quote": "fall of the Berlin Wall in 1989",
+            "event": "Fall of the Berlin Wall",
+            "description": "November 9, 1989 demolition of the Berlin Wall, symbolizing the end of Cold War division between East and West Germany"
+          }
+        ]
+      }
+    },
+    {
+      "input": "The Treaty of Westphalia in 1648 established the modern nation-state system",
+      "output": {
+        "events": [
+          {
+            "quote": "Treaty of Westphalia in 1648",
+            "event": "Treaty of Westphalia",
+            "description": "Peace treaty signed in 1648 ending the Thirty Years' War, establishing principles of state sovereignty and the modern international system"
+          }
+        ]
+      }
+    },
+    {
+      "input": "People lived in houses",
+      "output": {
+        "events": []
+      }
+    }
+  ]
+}
