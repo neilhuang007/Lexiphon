@@ -67,45 +67,12 @@ async function loadCategoryPrompts() {
 function switchCategory(category) {
     console.log('Switching to category:', category);
 
-    // Map category to handler name
-    const categoryToHandler = {
-        'finance': 'finance-combined',
-        'cs': 'cs-combined',
-        'history': 'history-combined'
-    };
+    currentCategory = category;
 
-    const handlerName = categoryToHandler[category];
-    if (handlerName && window.HandlerRegistry) {
-        try {
-            window.HandlerRegistry.setActive(handlerName);
-        } catch (error) {
-            console.error('Handler not found:', handlerName);
-            // Fallback to old behavior
-            currentCategory = category;
-        }
-    } else {
-        // Fallback if framework not loaded
-        currentCategory = category;
+    // Use new setActiveCategory method
+    if (window.HandlerRegistry) {
+        window.HandlerRegistry.setActiveCategory(category);
     }
-
-    // Update UI - remove active from all items
-    document.querySelectorAll('.category-item').forEach(item => {
-        item.classList.remove('active');
-    });
-
-    // Add active to clicked item
-    const activeItem = document.querySelector(`.category-item[data-category="${category}"]`);
-    if (activeItem) {
-        activeItem.classList.add('active');
-    }
-
-    // Update header
-    const headerText = {
-        finance: 'Finance & Business',
-        cs: 'Computer Science',
-        history: 'History'
-    };
-    document.querySelector('.app-header h3').textContent = headerText[category] || 'Finance & Business';
 
     // Clear existing content when switching
     clearContent();
@@ -477,7 +444,16 @@ function getCompleteWordChunks(txt, forceProcessRemaining = false, chunkSize = B
         const id = `${i}-${end}`;
 
         if (!processedChunks.has(id)) {
-            if (end - i >= chunkSize || (forceProcessRemaining && end > i)) {
+            // Process ANY remaining words when forcing, regardless of size
+            if (forceProcessRemaining && end > i) {
+                chunks.push({
+                    id,
+                    text: words.slice(i, end).join(' '),
+                    startIndex: i,
+                    endIndex: end
+                });
+            } else if (end - i >= chunkSize) {
+                // Normal processing - full chunks only
                 chunks.push({
                     id,
                     text: words.slice(i, end).join(' '),
@@ -488,40 +464,6 @@ function getCompleteWordChunks(txt, forceProcessRemaining = false, chunkSize = B
         }
     }
     return chunks;
-}
-
-async function processNewChunks(forceProcessRemaining = false, chunkSize = BASE_CHUNK_SIZE) {
-    const chunks = getCompleteWordChunks(fullTranscript, forceProcessRemaining, chunkSize);
-
-    const chunkPromises = chunks.map(async (chunk) => {
-        activeCorrections++;
-        updateCorrectionStatus();
-
-        try {
-            const correctedText = await correctTyposForChunk(chunk.text);
-            if (correctedText && correctedText.trim()) {
-                processedChunks.set(chunk.id, correctedText);
-
-                // Notify active handler
-                const activeHandler = window.HandlerRegistry.getActive();
-                if (activeHandler) {
-                    await activeHandler.processChunk(correctedText, {
-                        chunkId: chunk.id,
-                        startIndex: chunk.startIndex,
-                        endIndex: chunk.endIndex
-                    });
-                }
-            } else {
-                processedChunks.set(chunk.id, '');
-            }
-        } finally {
-            activeCorrections--;
-            updateCorrectionStatus();
-        }
-    });
-
-    await Promise.all(chunkPromises);
-    updateTranscriptionDisplay();
 }
 
 async function processRemainingText() {
@@ -538,6 +480,7 @@ async function processRemainingText() {
         isProcessingRemaining = false;
     }
 }
+
 
 async function correctTyposForChunk(text) {
     if (!text.trim()) return '';
@@ -571,6 +514,41 @@ Output: Anybody ever heard of Mt. Gox? Does that sound familiar? No. It was the 
         return text;
     }
 }
+
+async function processNewChunks(forceProcessRemaining = false, chunkSize = BASE_CHUNK_SIZE) {
+    const chunks = getCompleteWordChunks(fullTranscript, forceProcessRemaining, chunkSize);
+
+    const chunkPromises = chunks.map(async (chunk) => {
+        activeCorrections++;
+        updateCorrectionStatus();
+
+        try {
+            const correctedText = await correctTyposForChunk(chunk.text);
+            if (correctedText && correctedText.trim()) {
+                processedChunks.set(chunk.id, correctedText);
+
+                // Notify all active handlers
+                const activeHandlers = window.HandlerRegistry.getActiveHandlers();
+                for (const handler of activeHandlers) {
+                    await handler.processChunk(correctedText, {
+                        chunkId: chunk.id,
+                        startIndex: chunk.startIndex,
+                        endIndex: chunk.endIndex
+                    });
+                }
+            } else {
+                processedChunks.set(chunk.id, '');
+            }
+        } finally {
+            activeCorrections--;
+            updateCorrectionStatus();
+        }
+    });
+
+    await Promise.all(chunkPromises);
+    updateTranscriptionDisplay();
+}
+
 
 function saveCursorPosition() {
     const sel = window.getSelection();
@@ -671,15 +649,17 @@ function updateTranscriptionDisplay() {
     if (wordIndex < words.length) {
         const remainingWords = words.slice(wordIndex);
         const remainingText = remainingWords.join(' ');
-
-        const isProcessingChunk = activeCorrections > 0 && wordIndex === Array.from(processedChunks.values())
-            .map(chunk => chunk.split(/\s+/).filter(w => w.length > 0).length)
-            .reduce((a, b) => a + b, 0);
-
+        const isProcessingChunk = activeCorrections > 0;
+        const backlog = remainingWords.length;
+        // If actively processing, show as processing-text
         if (isProcessingChunk) {
-            html += `<span class="processing-text">${remainingText}</span>`;
+            html += `<span class="processing-text">${escapeHtml(remainingText)}</span>`;
+        } else if (backlog < BASE_CHUNK_SIZE) {
+            // Small remaining text treated as processed
+            const highlighted = applyHighlightsWithPriority(remainingText, 'remaining');
+            html += `<span class="processed-chunk">${highlighted}</span>`;
         } else {
-            html += `<span class="unprocessed-text">${remainingText}</span>`;
+            html += `<span class="unprocessed-text">${escapeHtml(remainingText)}</span>`;
         }
     }
 
@@ -701,6 +681,104 @@ function updateTranscriptionDisplay() {
 
     // Re-attach event listeners for handlers
     attachTranscriptEventListeners();
+}
+
+function applyHighlightsWithPriority(text, chunkId) {
+    // Collect highlights from all active handlers
+    const highlights = [];
+
+    // Get terms and events from all active finance handlers
+    const activeHandlers = window.HandlerRegistry.getActiveHandlers();
+
+    activeHandlers.forEach(handler => {
+        const state = handler.getState();
+
+        // Process terms
+        if (state.customData.terms) {
+            state.customData.terms.forEach((data, term) => {
+                const regex = new RegExp(`\\b${escapeRegex(term)}\\b`, 'gi');
+                let match;
+                while ((match = regex.exec(text)) !== null) {
+                    highlights.push({
+                        type: 'term',
+                        start: match.index,
+                        end: match.index + match[0].length,
+                        text: match[0],
+                        data: term,
+                        priority: match[0].length
+                    });
+                }
+            });
+        }
+
+        // Process events
+        if (state.customData.events) {
+            state.customData.events.forEach((data, eventKey) => {
+                if (!data.searchTerms) {
+                    data.searchTerms = handler._generateEventSearchTerms ?
+                        handler._generateEventSearchTerms(data.event) : [data.event];
+                }
+
+                data.searchTerms.forEach(searchTerm => {
+                    const regex = new RegExp(`\\b${escapeRegex(searchTerm)}\\b`, 'gi');
+                    let match;
+                    while ((match = regex.exec(text)) !== null) {
+                        highlights.push({
+                            type: 'event',
+                            start: match.index,
+                            end: match.index + match[0].length,
+                            text: match[0],
+                            data: eventKey,
+                            priority: 1000 + match[0].length
+                        });
+                    }
+                });
+            });
+        }
+    });
+
+    // Sort and resolve overlaps (rest of the function remains the same)
+    highlights.sort((a, b) => {
+        if (a.start !== b.start) return a.start - b.start;
+        return b.priority - a.priority;
+    });
+
+    const finalHighlights = [];
+    for (const highlight of highlights) {
+        let canAdd = true;
+        for (let i = finalHighlights.length - 1; i >= 0; i--) {
+            const existing = finalHighlights[i];
+            if (highlight.start < existing.end && highlight.end > existing.start) {
+                if (highlight.priority > existing.priority) {
+                    finalHighlights.splice(i, 1);
+                } else {
+                    canAdd = false;
+                    break;
+                }
+            }
+        }
+        if (canAdd) {
+            finalHighlights.push(highlight);
+        }
+    }
+
+    finalHighlights.sort((a, b) => a.start - b.start);
+
+    let result = '';
+    let lastIndex = 0;
+
+    for (const highlight of finalHighlights) {
+        result += escapeHtml(text.substring(lastIndex, highlight.start));
+        if (highlight.type === 'event') {
+            result += `<span class="highlighted-event" data-event="${highlight.data}" data-chunk="${chunkId}">${escapeHtml(highlight.text)}</span>`;
+        } else {
+            result += `<span class="highlighted-term" data-term="${highlight.data}" data-chunk="${chunkId}">${escapeHtml(highlight.text)}</span>`;
+        }
+        lastIndex = highlight.end;
+    }
+
+    result += escapeHtml(text.substring(lastIndex));
+    return result;
 }
 
 async function processTextForEvents(text, chunkId) {
@@ -1117,114 +1195,6 @@ function clearContent() {
     }
 }
 
-function applyHighlightsWithPriority(text, chunkId) {
-    // First, collect all potential highlights
-    const highlights = [];
-
-    // Collect term highlights
-    detectedTerms.forEach((data, term) => {
-        const regex = new RegExp(`\\b${escapeRegex(term)}\\b`, 'gi');
-        let match;
-        while ((match = regex.exec(text)) !== null) {
-            highlights.push({
-                type: 'term',
-                start: match.index,
-                end: match.index + match[0].length,
-                text: match[0],
-                data: term,
-                priority: match[0].length // Longer terms have higher priority
-            });
-        }
-    });
-
-    // Collect event highlights
-    detectedEvents.forEach((data, eventKey) => {
-        // Ensure searchTerms exists
-        if (!data.searchTerms) {
-            data.searchTerms = generateEventSearchTerms(data.event);
-            if (data.quote) {
-                data.searchTerms.push(data.quote);
-            }
-        }
-
-        // Try each search term
-        data.searchTerms.forEach(searchTerm => {
-            const regex = new RegExp(`\\b${escapeRegex(searchTerm)}\\b`, 'gi');
-            let match;
-            while ((match = regex.exec(text)) !== null) {
-                highlights.push({
-                    type: 'event',
-                    start: match.index,
-                    end: match.index + match[0].length,
-                    text: match[0],
-                    data: eventKey,
-                    priority: 1000 + match[0].length // Events have higher priority than terms
-                });
-            }
-        });
-    });
-
-    // Sort highlights by start position, then by priority (descending)
-    highlights.sort((a, b) => {
-        if (a.start !== b.start) return a.start - b.start;
-        return b.priority - a.priority;
-    });
-
-    // Resolve overlaps - improved logic
-    const finalHighlights = [];
-
-    for (const highlight of highlights) {
-        let canAdd = true;
-
-        // Check against all existing highlights
-        for (let i = finalHighlights.length - 1; i >= 0; i--) {
-            const existing = finalHighlights[i];
-
-            // Check for overlap
-            if (highlight.start < existing.end && highlight.end > existing.start) {
-                // There's an overlap
-                if (highlight.priority > existing.priority) {
-                    // Current highlight has higher priority, remove the existing one
-                    finalHighlights.splice(i, 1);
-                } else {
-                    // Existing highlight has higher priority, don't add current
-                    canAdd = false;
-                    break;
-                }
-            }
-        }
-
-        if (canAdd) {
-            finalHighlights.push(highlight);
-        }
-    }
-
-    // Sort final highlights by position
-    finalHighlights.sort((a, b) => a.start - b.start);
-
-    // Apply highlights to text
-    let result = '';
-    let lastIndex = 0;
-
-    for (const highlight of finalHighlights) {
-        // Add unhighlighted text before this highlight
-        result += escapeHtml(text.substring(lastIndex, highlight.start));
-
-        // Add highlighted text
-        if (highlight.type === 'event') {
-            result += `<span class="highlighted-event" data-event="${highlight.data}" data-chunk="${chunkId}">${escapeHtml(highlight.text)}</span>`;
-        } else {
-            result += `<span class="highlighted-term" data-term="${highlight.data}" data-chunk="${chunkId}">${escapeHtml(highlight.text)}</span>`;
-        }
-
-        lastIndex = highlight.end;
-    }
-
-    // Add remaining text
-    result += escapeHtml(text.substring(lastIndex));
-
-    return result;
-}
 
 // Helper function to escape regex special characters
 function escapeRegex(string) {
@@ -1418,8 +1388,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Register handlers after prompt loading
         if (window.BaseHandler && window.HandlerRegistry) {
             registerHandlers();
-            // Set default handler
-            window.HandlerRegistry.setActive('finance-combined');
         } else {
             console.warn('Handler framework not loaded, falling back to legacy mode');
         }
@@ -1489,17 +1457,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function registerHandlers() {
-    // Finance handlers
-    const financeHandler = new FinanceCombinedHandler();
-    window.HandlerRegistry.register(financeHandler);
+    // Finance handlers - separate terms and events
+    const financeTermsHandler = new FinanceTermsHandler();
+    const financeEventsHandler = new FinanceEventsHandler();
 
-    // CS handler
-    const csHandler = new ComputerScienceHandler();
-    window.HandlerRegistry.register(csHandler);
+    window.HandlerRegistry.register(financeTermsHandler);
+    window.HandlerRegistry.register(financeEventsHandler);
 
-    // History handler
-    const historyHandler = new HistoryHandler();
-    window.HandlerRegistry.register(historyHandler);
+    // CS handler (if exists)
+    if (window.ComputerScienceHandler) {
+        const csHandler = new ComputerScienceHandler();
+        window.HandlerRegistry.register(csHandler);
+    }
+
+    // History handler (if exists)
+    if (window.HistoryHandler) {
+        const historyHandler = new HistoryHandler();
+        window.HandlerRegistry.register(historyHandler);
+    }
 }
 
 function exportAnalysis() {
@@ -1581,4 +1556,29 @@ function attachTranscriptEventListeners() {
             handler.emit('event-clicked', { event });
         });
     });
+
+    if (window.BaseHandler && window.HandlerRegistry) {
+        registerHandlers();
+        // Set default category
+        setTimeout(() => {
+            window.HandlerRegistry.setActiveCategory('finance');
+        }, 100);
+    }
 }
+
+// Debug helper - add after DOMContentLoaded
+window.debugHandlers = function() {
+    const handlers = window.HandlerRegistry.getActiveHandlers();
+    console.log('=== ACTIVE HANDLERS DEBUG ===');
+    handlers.forEach(handler => {
+        const state = handler.getState();
+        console.log(`Handler: ${handler.name}`);
+        console.log('State:', state);
+        if (state.customData.terms) {
+            console.log('Terms:', Array.from(state.customData.terms.entries()));
+        }
+        if (state.customData.events) {
+            console.log('Events:', Array.from(state.customData.events.entries()));
+        }
+    });
+};

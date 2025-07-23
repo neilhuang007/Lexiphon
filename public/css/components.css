@@ -266,3 +266,87 @@
         right: 0;
     }
 }
+
+/* Multi-Handler Tabs */
+.multi-handler-tabs {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.multi-handler-tabs .tabs-header {
+    display: flex;
+    gap: 0;
+    padding: 0;
+    background: white;
+    border-bottom: 2px solid var(--border-light);
+    flex-shrink: 0;
+}
+
+.multi-handler-tabs .tab-btn {
+    font-family: var(--font-family-base), sans-serif;
+    padding: 4px 8px;
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    font-weight: 450;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.multi-handler-tabs .tab-btn:last-child {
+    border-right: none;
+}
+
+.multi-handler-tabs .tab-btn:hover {
+    background: var(--gray-50);
+    color: var(--text-secondary);
+}
+
+.multi-handler-tabs .tab-btn.active {
+    color: var(--text-primary);
+    font-weight: 500;
+    background: var(--background);
+}
+
+.multi-handler-tabs .tab-btn::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: transparent;
+    transition: background 0.2s ease;
+}
+
+.multi-handler-tabs .tab-btn.active::after {
+    background: var(--primary);
+}
+
+.multi-handler-tabs .tab-icon {
+    font-size: 16px;
+}
+
+.multi-handler-tabs .tabs-content {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+.multi-handler-tabs .tab-panel {
+    display: none;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.multi-handler-tabs .tab-panel.active {
+    display: block;
+}

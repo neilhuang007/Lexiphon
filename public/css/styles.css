@@ -436,22 +436,6 @@ body.resizing * {
     z-index: 10;
 }
 
-.copy-button,
-.export-button {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--background);
-    border: 1px solid var(--border-light);
-    border-radius: 6px;
-    cursor: pointer;
-    opacity: 0;
-    transition: all 0.2s ease;
-    color: var(--text-primary);
-}
-
 .copy-button svg,
 .export-button svg {
     flex-shrink: 0;

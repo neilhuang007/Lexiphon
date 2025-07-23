@@ -2,7 +2,8 @@
 class HandlerRegistry {
     constructor() {
         this.handlers = new Map();
-        this.activeHandler = null;
+        this.activeHandlers = new Set(); // Multiple active handlers per category
+        this.activeCategory = null;
         this._listeners = new Set();
     }
 
@@ -23,8 +24,8 @@ class HandlerRegistry {
     }
 
     unregister(handlerName) {
-        if (this.activeHandler && this.activeHandler.name === handlerName) {
-            this.deactivate();
+        if (this.activeHandlers.has(handlerName)) {
+            this.deactivateHandler(handlerName);
         }
 
         const handler = this.handlers.get(handlerName);
@@ -42,32 +43,56 @@ class HandlerRegistry {
         return Array.from(this.handlers.values());
     }
 
-    setActive(handlerName) {
+    getHandlersByCategory(category) {
+        return this.getAll().filter(handler => {
+            const handlerCategory = handler.name.split('-')[0];
+            return handlerCategory === category;
+        });
+    }
+
+    setActiveCategory(category) {
+        // Deactivate all current handlers
+        this.deactivateAll();
+
+        this.activeCategory = category;
+
+        // Get all handlers for this category
+        const categoryHandlers = this.getHandlersByCategory(category);
+
+        if (categoryHandlers.length === 0) {
+            this._renderEmptyPanel();
+            return;
+        }
+
+        // Create tabs container
+        this._createTabsContainer();
+
+        // Activate all handlers for this category
+        categoryHandlers.forEach((handler, index) => {
+            this.activateHandler(handler.name, index === 0);
+        });
+
+        // Update category selection UI
+        this._updateCategorySelection(category);
+    }
+
+    activateHandler(handlerName, makeActive = false) {
         const handler = this.handlers.get(handlerName);
 
         if (!handler) {
             throw new Error(`Handler ${handlerName} not found`);
         }
 
-        // Deactivate current handler
-        if (this.activeHandler) {
-            this.deactivate();
+        this.activeHandlers.add(handler);
+
+        // Create tab for this handler
+        this._createHandlerTab(handler, makeActive);
+
+        // Mount handler content
+        const tabContent = document.getElementById(`tab-content-${handler.name}`);
+        if (tabContent) {
+            handler.onMount(tabContent);
         }
-
-        // Activate new handler
-        this.activeHandler = handler;
-
-        // Update UI
-        this._updateUI();
-
-        // Mount handler to right panel
-        const container = document.querySelector('.handler-panel-container');
-        if (container) {
-            handler.onMount(container);
-        }
-
-        // Update category selection
-        this._updateCategorySelection(handlerName);
 
         // Notify listeners
         this._notifyListeners('activated', handler);
@@ -75,21 +100,35 @@ class HandlerRegistry {
         console.log(`Activated handler: ${handlerName}`);
     }
 
-    deactivate() {
-        if (this.activeHandler) {
-            const handler = this.activeHandler;
+    deactivateHandler(handlerName) {
+        const handler = this.handlers.get(handlerName);
+        if (handler && this.activeHandlers.has(handler)) {
             handler.onUnmount();
-            this.activeHandler = null;
+            this.activeHandlers.delete(handler);
             this._notifyListeners('deactivated', handler);
         }
     }
 
+    deactivateAll() {
+        this.activeHandlers.forEach(handler => {
+            handler.onUnmount();
+            this._notifyListeners('deactivated', handler);
+        });
+        this.activeHandlers.clear();
+    }
+
     getActive() {
-        return this.activeHandler;
+        // Return first active handler for compatibility
+        return Array.from(this.activeHandlers)[0] || null;
+    }
+
+    getActiveHandlers() {
+        return Array.from(this.activeHandlers);
     }
 
     isActive(handlerName) {
-        return this.activeHandler && this.activeHandler.name === handlerName;
+        const handler = this.handlers.get(handlerName);
+        return handler && this.activeHandlers.has(handler);
     }
 
     // Event handling
@@ -116,66 +155,90 @@ class HandlerRegistry {
         });
     }
 
-    _updateUI() {
-        if (!this.activeHandler) return;
+    _createTabsContainer() {
+        const rightPanel = document.querySelector('.terms-sidebar');
+        if (!rightPanel) return;
 
-        // Update header
-        const header = document.querySelector('.app-header h3');
-        if (header) {
-            header.textContent = this.activeHandler.displayName;
-        }
-
-        // Update or create handler-specific controls
-        this._renderHandlerControls();
+        rightPanel.innerHTML = `
+            <div class="multi-handler-tabs">
+                <div class="tabs-header" id="handler-tabs-header"></div>
+                <div class="tabs-content" id="handler-tabs-content"></div>
+            </div>
+        `;
     }
 
-    _renderHandlerControls() {
-        const controlsSection = document.querySelector('.controls-section');
-        if (!controlsSection) return;
+    _createHandlerTab(handler, makeActive) {
+        const tabsHeader = document.getElementById('handler-tabs-header');
+        const tabsContent = document.getElementById('handler-tabs-content');
 
-        // Remove existing handler controls
-        const existingControls = controlsSection.querySelector('.handler-controls');
-        if (existingControls) {
-            existingControls.remove();
-        }
+        if (!tabsHeader || !tabsContent) return;
 
-        // Get controls from active handler if it provides them
-        if (this.activeHandler && this.activeHandler.getControls) {
-            const controls = this.activeHandler.getControls();
-            if (controls) {
-                const controlsDiv = document.createElement('div');
-                controlsDiv.className = 'handler-controls';
-                controlsDiv.innerHTML = controls;
+        // Create tab button - NO ICON
+        const tabButton = document.createElement('button');
+        tabButton.className = `tab-btn ${makeActive ? 'active' : ''}`;
+        tabButton.setAttribute('data-handler', handler.name);
+        tabButton.textContent = handler.displayName; // Simple text only
 
-                // Insert after first button group
-                const buttonGroup = controlsSection.querySelector('.button-group');
-                if (buttonGroup) {
-                    buttonGroup.after(controlsDiv);
-                }
-            }
+        tabButton.addEventListener('click', () => {
+            this._switchTab(handler.name);
+        });
+
+        tabsHeader.appendChild(tabButton);
+
+        // Create tab content
+        const tabContent = document.createElement('div');
+        tabContent.id = `tab-content-${handler.name}`;
+        tabContent.className = `tab-panel ${makeActive ? 'active' : ''}`;
+        tabContent.setAttribute('data-handler', handler.name);
+
+        tabsContent.appendChild(tabContent);
+    }
+
+    _switchTab(handlerName) {
+        // Update tab buttons
+        document.querySelectorAll('#handler-tabs-header .tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-handler') === handlerName);
+        });
+
+        // Update tab content
+        document.querySelectorAll('#handler-tabs-content .tab-panel').forEach(panel => {
+            panel.classList.toggle('active', panel.getAttribute('data-handler') === handlerName);
+        });
+    }
+
+    _renderEmptyPanel() {
+        const rightPanel = document.querySelector('.terms-sidebar');
+        if (rightPanel) {
+            rightPanel.innerHTML = `
+                <div class="panel-placeholder">
+                    <p>No analysis available for this category</p>
+                </div>
+            `;
         }
     }
 
-    _updateCategorySelection(handlerName) {
-        // Map handler names to category text
-        const handlerToCategoryMap = {
+    _updateCategorySelection(category) {
+        // Map category to display text
+        const categoryTextMap = {
             'finance': 'Finance/Business',
             'cs': 'Computer Science',
             'history': 'History'
         };
 
-        const categoryText = handlerToCategoryMap[handlerName];
+        const categoryText = categoryTextMap[category];
         if (!categoryText) return;
 
         // Update active category
         document.querySelectorAll('.category-item').forEach(item => {
-            const text = item.querySelector('.category-text');
-            if (text && text.textContent === categoryText) {
-                item.classList.add('active');
-            } else {
-                item.classList.remove('active');
-            }
+            const itemCategory = item.getAttribute('data-category');
+            item.classList.toggle('active', itemCategory === category);
         });
+
+        // Update header
+        const header = document.querySelector('.app-header h3');
+        if (header) {
+            header.textContent = categoryText;
+        }
     }
 }
 

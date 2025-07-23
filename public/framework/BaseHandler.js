@@ -56,7 +56,29 @@ class BaseHandler {
 
     // State management
     getState() {
-        return JSON.parse(JSON.stringify(this._state));
+        // Deep clone handler state, preserving Map instances
+        const { processedChunks, pendingOperations, customData, uiState } = this._state;
+        // Clone core state
+        const stateClone = {
+            processedChunks: new Map(processedChunks),
+            pendingOperations: Array.isArray(pendingOperations) ? [...pendingOperations] : [],
+            customData: {},
+            uiState: {
+                activeSection: uiState.activeSection,
+                expandedItems: Array.isArray(uiState.expandedItems) ? [...uiState.expandedItems] : [],
+                scrollPositions: uiState.scrollPositions instanceof Map ? new Map(uiState.scrollPositions) : new Map(),
+                userPreferences: uiState.userPreferences && typeof uiState.userPreferences === 'object' ? { ...uiState.userPreferences } : {}
+            }
+        };
+        // Clone customData entries
+        Object.entries(customData).forEach(([key, value]) => {
+            if (value instanceof Map) {
+                stateClone.customData[key] = new Map(value);
+            } else {
+                stateClone.customData[key] = value;
+            }
+        });
+        return stateClone;
     }
 
     setState(updates) {
