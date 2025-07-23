@@ -334,12 +334,21 @@ async function handleAudioUpload(e) {
             await window.AudioVisualizer.processAudioFile(file);
         }
 
+        // Check file size (10MB limit for base64)
+        const maxSize = 7 * 1024 * 1024; // 7MB to be safe with base64 overhead
+        if (file.size > maxSize) {
+            throw new Error('File too large. Maximum size is 7MB.');
+        }
+
         // Convert file to base64
         const reader = new FileReader();
-        const base64Audio = await new Promise((resolve) => {
+        const base64Audio = await new Promise((resolve, reject) => {
             reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
             reader.readAsDataURL(file);
         });
+
+        console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
 
         const res = await fetch('/api/transcribe', {
             method: 'POST',
@@ -356,13 +365,22 @@ async function handleAudioUpload(e) {
 
         console.log('Upload response status:', res.status);
 
-        if (!res.ok) {
-            const errorData = await res.text();
-            console.error('Upload Error Response:', errorData);
-            throw new Error(`Upload error: ${res.status} - ${errorData}`);
+        const responseText = await res.text();
+        console.log('Raw response:', responseText.substring(0, 200));
+
+        let json;
+        try {
+            json = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error('Failed to parse response:', responseText);
+            throw new Error(`Server returned invalid response: ${responseText.substring(0, 100)}`);
         }
 
-        const json = await res.json();
+        if (!res.ok) {
+            console.error('Upload Error Response:', json);
+            throw new Error(`Upload error: ${json.error || 'Unknown error'} - ${json.details || ''}`);
+        }
+
         console.log('Upload result:', json);
 
         const text = json.text || '';

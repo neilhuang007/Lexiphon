@@ -15,12 +15,14 @@ class FinanceEventsHandler extends BaseHandler {
         try {
             const response = await fetch('./prompts/finance-events.json');
             this.eventsPrompt = await response.json();
+            console.log('[FinanceEventsHandler] Prompts loaded successfully');
         } catch (error) {
-            console.error('Failed to load finance events prompt:', error);
+            console.error('[FinanceEventsHandler] Failed to load prompts:', error);
         }
     }
 
     setState(updates) {
+        console.log('[FinanceEventsHandler] setState called with:', updates);
         if (updates.customData && updates.customData.events && !(updates.customData.events instanceof Map)) {
             updates.customData.events = new Map(updates.customData.events);
         }
@@ -53,6 +55,7 @@ class FinanceEventsHandler extends BaseHandler {
             '.event-card': {
                 click: (e) => {
                     const eventId = e.currentTarget.dataset.eventId;
+                    console.log('[FinanceEventsHandler] Event card clicked:', eventId);
                     this._highlightEventInTranscript(eventId);
                 }
             }
@@ -60,54 +63,68 @@ class FinanceEventsHandler extends BaseHandler {
     }
 
     async processChunk(text, context) {
-        if (!text.trim() || !this.eventsPrompt) return;
+        if (!text.trim() || !this.eventsPrompt) {
+            console.log('[FinanceEventsHandler] Skipping chunk - empty text or no prompts');
+            return;
+        }
+
         try {
-            console.log(`[FinanceEventsHandler] processChunk start: chunkId=${context.chunkId}, text snippet="${text.slice(0,50)}"`);
+            console.log(`[FinanceEventsHandler] Processing chunk ${context.chunkId}: "${text.slice(0, 50)}..."`);
             const events = await this._extractEvents(text, context.chunkId);
-            console.log('[FinanceEventsHandler] extracted events:', events);
+            console.log('[FinanceEventsHandler] Extracted events:', events);
 
-         const state = this.getState();
-         // Normalize events map (restore Map if corrupted by serialization)
-         let currentEventsRaw = state.customData.events;
-         let currentEvents;
-         if (currentEventsRaw instanceof Map) {
-             currentEvents = currentEventsRaw;
-         } else if (Array.isArray(currentEventsRaw)) {
-             currentEvents = new Map(currentEventsRaw);
-         } else if (currentEventsRaw && typeof currentEventsRaw === 'object') {
-             currentEvents = new Map(Object.entries(currentEventsRaw));
-         } else {
-             currentEvents = new Map();
-         }
+            const state = this.getState();
 
-        events && Array.isArray(events) ? events.forEach(event => {
-             const key = event.event.toLowerCase().replace(/\s+/g, '-');
-             if (!currentEvents.has(key)) {
-                 event.searchTerms = this._generateEventSearchTerms(event.event);
-                 if (event.quote && !event.searchTerms.includes(event.quote)) {
-                     event.searchTerms.push(event.quote);
-                 }
-                 currentEvents.set(key, { ...event, chunkId: context.chunkId });
-             }
-         });
+            // Normalize events map
+            let currentEventsRaw = state.customData.events;
+            let currentEvents;
 
-         this.setState({
-             customData: {
-                 ...state.customData,
-                 events: currentEvents,
-                 lastProcessedChunk: context.chunkId
-             }
-         });
-            console.log(`[FinanceEventsHandler] currentEvents count after update: ${currentEvents.size}`);
+            if (currentEventsRaw instanceof Map) {
+                currentEvents = currentEventsRaw;
+            } else if (Array.isArray(currentEventsRaw)) {
+                currentEvents = new Map(currentEventsRaw);
+            } else if (currentEventsRaw && typeof currentEventsRaw === 'object') {
+                currentEvents = new Map(Object.entries(currentEventsRaw));
+            } else {
+                currentEvents = new Map();
+            }
+
+            console.log(`[FinanceEventsHandler] Current events count: ${currentEvents.size}`);
+
+            // Process events if they exist
+            if (events && Array.isArray(events)) {
+                events.forEach(event => {
+                    const key = event.event.toLowerCase().replace(/\s+/g, '-');
+                    if (!currentEvents.has(key)) {
+                        event.searchTerms = this._generateEventSearchTerms(event.event);
+                        if (event.quote && !event.searchTerms.includes(event.quote)) {
+                            event.searchTerms.push(event.quote);
+                        }
+                        currentEvents.set(key, { ...event, chunkId: context.chunkId });
+                        console.log(`[FinanceEventsHandler] Added new event: ${event.event}`);
+                    }
+                });
+            }
+
+            this.setState({
+                customData: {
+                    ...state.customData,
+                    events: currentEvents,
+                    lastProcessedChunk: context.chunkId
+                }
+            });
+
+            console.log(`[FinanceEventsHandler] Updated events count: ${currentEvents.size}`);
         } catch (error) {
             console.error('[FinanceEventsHandler] Error in processChunk:', error);
         }
 
-         // Update transcript highlights
-         this._updateTranscriptHighlights();
+        // Update transcript highlights
+        this._updateTranscriptHighlights();
     }
 
     async processComplete(fullTranscript) {
+        console.log('[FinanceEventsHandler] Processing complete');
         const state = this.getState();
         const eventCount = state.customData.events?.size || 0;
 
@@ -120,17 +137,21 @@ class FinanceEventsHandler extends BaseHandler {
                 }
             }
         });
+
+        console.log(`[FinanceEventsHandler] Final event count: ${eventCount}`);
     }
 
     async _extractEvents(text, chunkId) {
+        console.log(`[FinanceEventsHandler] Extracting events from chunk ${chunkId}`);
         const messages = this._buildMessages(this.eventsPrompt, text);
 
         try {
             const response = await this._callDeepSeek(messages);
             const json = this._parseJsonResponse(response);
+            console.log('[FinanceEventsHandler] DeepSeek response:', json);
             return json.events || [];
         } catch (error) {
-            console.error('Event extraction error:', error);
+            console.error('[FinanceEventsHandler] Event extraction error:', error);
             return [];
         }
     }
@@ -171,6 +192,7 @@ class FinanceEventsHandler extends BaseHandler {
     }
 
     async _callDeepSeek(messages) {
+        console.log('[FinanceEventsHandler] Calling DeepSeek API');
         const response = await fetch('/api/deepseek', {
             method: 'POST',
             headers: {
@@ -194,6 +216,7 @@ class FinanceEventsHandler extends BaseHandler {
         try {
             return JSON.parse(response);
         } catch (parseError) {
+            console.error('[FinanceEventsHandler] JSON parse error:', parseError);
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 return JSON.parse(jsonMatch[0]);
@@ -237,11 +260,14 @@ class FinanceEventsHandler extends BaseHandler {
             }
         });
 
-        return [...new Set(terms)];
+        const uniqueTerms = [...new Set(terms)];
+        console.log(`[FinanceEventsHandler] Generated search terms for "${eventName}":`, uniqueTerms);
+        return uniqueTerms;
     }
 
     _renderEvents(state) {
         const events = state.customData.events || new Map();
+        console.log(`[FinanceEventsHandler] Rendering ${events.size} events`);
 
         if (events.size === 0) {
             return '<div class="no-terms">Historical events will appear here as they are detected</div>';
@@ -263,8 +289,12 @@ class FinanceEventsHandler extends BaseHandler {
     }
 
     _highlightEventInTranscript(eventId) {
+        console.log('[FinanceEventsHandler] Highlighting event in transcript:', eventId);
+
         // Find all occurrences in transcript
         const elements = document.querySelectorAll(`.highlighted-event[data-event="${eventId}"]`);
+        console.log(`[FinanceEventsHandler] Found ${elements.length} occurrences of event`);
+
         if (elements.length > 0) {
             // Scroll to last occurrence
             const lastElement = elements[elements.length - 1];
@@ -279,6 +309,7 @@ class FinanceEventsHandler extends BaseHandler {
     }
 
     _updateTranscriptHighlights() {
+        console.log('[FinanceEventsHandler] Requesting transcript highlight update');
         // Trigger main app to update highlights
         if (window.updateTranscriptionDisplay) {
             window.updateTranscriptionDisplay();
