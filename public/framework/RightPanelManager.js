@@ -43,16 +43,6 @@ class RightPanelManager {
         let panelContainer = rightPanel.querySelector('.handler-panel-container');
         if (!panelContainer) {
             rightPanel.innerHTML = `
-                <div class="handler-panel-header">
-                    <h3 class="panel-title">Content Analysis</h3>
-                    <button class="panel-menu-btn" id="panelMenuBtn">
-                        <svg width="16" height="16" viewBox="0 0 16 16">
-                            <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
-                            <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
-                            <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
-                        </svg>
-                    </button>
-                </div>
                 <div class="handler-panel-container">
                     <div class="panel-placeholder">
                         <p>Select a category to begin analysis</p>

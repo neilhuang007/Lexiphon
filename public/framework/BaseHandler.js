@@ -243,7 +243,7 @@ class BaseHandler {
     _saveState() {
         const key = `handler-state-${this.name}`;
         const stateToSave = {
-            customData: this._state.customData,
+            customData: this._serializeCustomData(this._state.customData),
             uiState: this._state.uiState
         };
         localStorage.setItem(key, JSON.stringify(stateToSave));
@@ -256,11 +256,39 @@ class BaseHandler {
         if (savedState) {
             try {
                 const parsed = JSON.parse(savedState);
+                if (parsed.customData) {
+                    parsed.customData = this._deserializeCustomData(parsed.customData);
+                }
                 this.setState(parsed);
             } catch (error) {
                 console.error('Failed to restore handler state:', error);
             }
         }
+    }
+
+    _serializeCustomData(customData) {
+        const serialized = {};
+        for (const [key, value] of Object.entries(customData)) {
+            if (value instanceof Map) {
+                serialized[key] = Array.from(value.entries());
+            } else {
+                serialized[key] = value;
+            }
+        }
+        return serialized;
+    }
+
+    _deserializeCustomData(customData) {
+        const deserialized = {};
+        for (const [key, value] of Object.entries(customData)) {
+            if (Array.isArray(value) && value.length > 0 && Array.isArray(value[0]) && value[0].length === 2) {
+                // This looks like a serialized Map
+                deserialized[key] = new Map(value);
+            } else {
+                deserialized[key] = value;
+            }
+        }
+        return deserialized;
     }
 
     _notifyStateListeners(oldState, newState) {

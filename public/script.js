@@ -65,8 +65,28 @@ async function loadCategoryPrompts() {
 }
 
 function switchCategory(category) {
-    currentCategory = category;
-    console.log('Switched to category:', category);
+    console.log('Switching to category:', category);
+
+    // Map category to handler name
+    const categoryToHandler = {
+        'finance': 'finance-combined',
+        'cs': 'cs-combined',
+        'history': 'history-combined'
+    };
+
+    const handlerName = categoryToHandler[category];
+    if (handlerName && window.HandlerRegistry) {
+        try {
+            window.HandlerRegistry.setActive(handlerName);
+        } catch (error) {
+            console.error('Handler not found:', handlerName);
+            // Fallback to old behavior
+            currentCategory = category;
+        }
+    } else {
+        // Fallback if framework not loaded
+        currentCategory = category;
+    }
 
     // Update UI - remove active from all items
     document.querySelectorAll('.category-item').forEach(item => {
@@ -87,7 +107,7 @@ function switchCategory(category) {
     };
     document.querySelector('.app-header h3').textContent = headerText[category] || 'Finance & Business';
 
-    // Clear existing terms/events when switching
+    // Clear existing content when switching
     clearContent();
 }
 
@@ -481,8 +501,16 @@ async function processNewChunks(forceProcessRemaining = false, chunkSize = BASE_
             const correctedText = await correctTyposForChunk(chunk.text);
             if (correctedText && correctedText.trim()) {
                 processedChunks.set(chunk.id, correctedText);
-                processTextForTerms(correctedText, chunk.id);
-                processTextForEvents(correctedText, chunk.id);
+
+                // Notify active handler
+                const activeHandler = window.HandlerRegistry.getActive();
+                if (activeHandler) {
+                    await activeHandler.processChunk(correctedText, {
+                        chunkId: chunk.id,
+                        startIndex: chunk.startIndex,
+                        endIndex: chunk.endIndex
+                    });
+                }
             } else {
                 processedChunks.set(chunk.id, '');
             }
@@ -649,10 +677,9 @@ function updateTranscriptionDisplay() {
             .reduce((a, b) => a + b, 0);
 
         if (isProcessingChunk) {
-            html += `<span class="processing-text" id="processing-text">${remainingText}</span>`;
-            setTimeout(() => startReadingAnimation(remainingText), 50);
+            html += `<span class="processing-text">${remainingText}</span>`;
         } else {
-            html += remainingText;
+            html += `<span class="unprocessed-text">${remainingText}</span>`;
         }
     }
 
@@ -672,24 +699,8 @@ function updateTranscriptionDisplay() {
         }
     }
 
-    // Re-attach event listeners
-    document.querySelectorAll('.highlighted-term').forEach(el => {
-        el.addEventListener('click', e => {
-            e.stopPropagation();
-            const term = el.getAttribute('data-term');
-            scrollToElement(el);
-            highlightCard(`term-${term.toLowerCase().replace(/\s+/g, '-')}`);
-        });
-    });
-
-    document.querySelectorAll('.highlighted-event').forEach(el => {
-        el.addEventListener('click', e => {
-            e.stopPropagation();
-            const event = el.getAttribute('data-event');
-            scrollToElement(el);
-            highlightCard(`event-${event}`);
-        });
-    });
+    // Re-attach event listeners for handlers
+    attachTranscriptEventListeners();
 }
 
 async function processTextForEvents(text, chunkId) {
@@ -1083,8 +1094,17 @@ function clearContent() {
     activeUploads = 0;
     clearTimeout(silenceTimer);
     clearInterval(recordingTimer);
-    document.getElementById('transcriptionArea').innerHTML = `<div class="transcription-placeholder">Start recording or upload an audio file to begin transcription</div>`;
-    document.getElementById('termsContainer').innerHTML = `<div class="no-terms">Economic terms and events will appear here as they're detected</div>`;
+
+    const transcriptionArea = document.getElementById('transcriptionArea');
+    if (transcriptionArea) {
+        transcriptionArea.innerHTML = `<div class="transcription-placeholder">Start recording or upload an audio file to begin transcription</div>`;
+    }
+
+    const termsContainer = document.getElementById('termsContainer');
+    if (termsContainer) {
+        termsContainer.innerHTML = `<div class="no-terms">Economic terms and events will appear here as they're detected</div>`;
+    }
+
     updateUploadStatus();
 
     // Reset visualizer
@@ -1269,12 +1289,24 @@ function initNudgeResizer() {
     topPane.style.flex = 'unset';
     topPane.style.height = '100%';
 
+    // Create button container
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'transcription-buttons';
+    transcriptionWrapper.appendChild(buttonContainer);
+
     // Create copy button
     const copyBtn = document.createElement('button');
     copyBtn.className = 'copy-button';
     copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256"><path d="M200,32H163.74a47.92,47.92,0,0,0-71.48,0H56A16,16,0,0,0,40,48V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V48A16,16,0,0,0,200,32Zm-72,0a32,32,0,0,1,32,32H96A32,32,0,0,1,128,32Zm72,184H56V48H82.75A47.93,47.93,0,0,0,80,64v8a8,8,0,0,0,8,8h80a8,8,0,0,0,8-8V64a47.93,47.93,0,0,0-2.75-16H200Z"></path></svg>`;
     copyBtn.title = 'Copy transcript';
-    transcriptionWrapper.appendChild(copyBtn);
+    buttonContainer.appendChild(copyBtn);
+
+    // Create export button
+    const exportBtn = document.createElement('button');
+    exportBtn.className = 'export-button';
+    exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256"><path d="M224,152v56a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V152a8,8,0,0,1,16,0v56H208V152a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,132.69V40a8,8,0,0,0-16,0v92.69L93.66,106.34a8,8,0,0,0-11.32,11.32Z"></path></svg>`;
+    exportBtn.title = 'Export analysis';
+    buttonContainer.appendChild(exportBtn);
 
     copyBtn.addEventListener('click', async () => {
         const text = topPane.innerText.replace('Start recording or upload an audio file to begin transcription', '').trim();
@@ -1289,6 +1321,10 @@ function initNudgeResizer() {
         } catch (err) {
             console.error('Copy failed:', err);
         }
+    });
+
+    exportBtn.addEventListener('click', () => {
+        exportAnalysis();
     });
 
     // Create resize handle inside the transcription wrapper at the bottom
@@ -1368,11 +1404,26 @@ function initNotesPlaceholder() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('Init EconSpeak with DeepSeek');
+    console.log('Init Lexiphon with Handler Framework');
 
     try {
         // Load prompts first
         await loadCategoryPrompts();
+
+        // Initialize framework components
+        if (window.RightPanelManager) {
+            window.RightPanelManager.init();
+        }
+
+        // Register handlers after prompt loading
+        if (window.BaseHandler && window.HandlerRegistry) {
+            registerHandlers();
+            // Set default handler
+            window.HandlerRegistry.setActive('finance-combined');
+        } else {
+            console.warn('Handler framework not loaded, falling back to legacy mode');
+        }
+
     } catch (error) {
         showError('Failed to load configuration. Please check prompt files.');
         console.error(error);
@@ -1397,13 +1448,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('recordBtn').addEventListener('click', toggleRecording);
     document.getElementById('clear-btn').addEventListener('click', clearContent);
 
-    // Upload button - make sure this event listener exists
+    // Upload button
     const audioUpload = document.getElementById('audioUpload');
     if (audioUpload) {
         audioUpload.addEventListener('change', handleAudioUpload);
         console.log('Audio upload listener attached');
-    } else {
-        console.error('audioUpload element not found!');
     }
 
     // Handle window resize for visualizer
@@ -1413,13 +1462,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         resizeTimeout = setTimeout(() => {
             if (window.AudioVisualizer) {
                 if (window.AudioVisualizer.mode === 'file' && window.AudioVisualizer.originalFileAmplitudes.length > 0) {
-                    // Reprocess amplitudes for new bar count without re-decoding
                     window.AudioVisualizer.reprocessFileAmplitudes(window.AudioVisualizer.originalFileAmplitudes);
                 } else if (window.AudioVisualizer.mode === 'realtime' && window.AudioVisualizer.isInitialized) {
-                    // Recreate bars for realtime mode
                     window.AudioVisualizer.createBars();
                 } else {
-                    // Default bars
                     window.AudioVisualizer.createBars();
                 }
             }
@@ -1429,10 +1475,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.requestMicrophonePermission = requestMicrophonePermission;
 
     initializeSidebar();
-
     initNudgeResizer();
-
-    initNotesPlaceholder()
+    initNotesPlaceholder();
 
     // Initialize visualizer bars after container is ready
     if (window.AudioVisualizer) {
@@ -1443,3 +1487,98 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     console.log('Ready.');
 });
+
+function registerHandlers() {
+    // Finance handlers
+    const financeHandler = new FinanceCombinedHandler();
+    window.HandlerRegistry.register(financeHandler);
+
+    // CS handler
+    const csHandler = new ComputerScienceHandler();
+    window.HandlerRegistry.register(csHandler);
+
+    // History handler
+    const historyHandler = new HistoryHandler();
+    window.HandlerRegistry.register(historyHandler);
+}
+
+function exportAnalysis() {
+    const handler = window.HandlerRegistry.getActive();
+    const transcript = document.getElementById('transcriptionArea').innerText
+        .replace('Start recording or upload an audio file to begin transcription', '').trim();
+
+    const data = {
+        metadata: {
+            exportedAt: new Date().toISOString(),
+            category: handler ? handler.displayName : 'Unknown',
+            duration: recordingTimer ? Math.floor(Date.now() - recordingTimer) / 1000 : 0
+        },
+        transcript: transcript,
+        notes: document.getElementById('notesArea').innerText.trim()
+    };
+
+    // Add handler-specific data if available
+    if (handler) {
+        const handlerState = handler.getState();
+        if (handlerState.customData.terms) {
+            data.terms = Array.from(handlerState.customData.terms.values());
+        }
+        if (handlerState.customData.events) {
+            data.events = Array.from(handlerState.customData.events.values());
+        }
+        if (handlerState.customData.summary) {
+            data.summary = handlerState.customData.summary;
+        }
+    }
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lexiphon-analysis-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function attachTranscriptEventListeners() {
+    const handler = window.HandlerRegistry?.getActive();
+    if (!handler) return;
+
+    // Listen for highlight events from handler
+    handler.on('highlight-term', ({ termId }) => {
+        const elements = document.querySelectorAll(`.highlighted-term[data-term="${termId}"]`);
+        if (elements.length > 0) {
+            const lastElement = elements[elements.length - 1];
+            scrollToElement(lastElement);
+        }
+    });
+
+    handler.on('highlight-event', ({ eventId }) => {
+        const elements = document.querySelectorAll(`.highlighted-event[data-event="${eventId}"]`);
+        if (elements.length > 0) {
+            const lastElement = elements[elements.length - 1];
+            scrollToElement(lastElement);
+        }
+    });
+
+    // Click handlers for highlighted terms/events
+    document.querySelectorAll('.highlighted-term').forEach(el => {
+        el.addEventListener('click', e => {
+            e.stopPropagation();
+            const term = el.getAttribute('data-term');
+            scrollToElement(el);
+            // Notify handler
+            handler.emit('term-clicked', { term });
+        });
+    });
+
+    document.querySelectorAll('.highlighted-event').forEach(el => {
+        el.addEventListener('click', e => {
+            e.stopPropagation();
+            const event = el.getAttribute('data-event');
+            scrollToElement(el);
+            // Notify handler
+            handler.emit('event-clicked', { event });
+        });
+    });
+}

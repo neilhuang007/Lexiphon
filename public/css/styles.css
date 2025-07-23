@@ -30,7 +30,7 @@
     --gray-alpha-950: rgba(0,0,1,.89);
 
     /* Typography */
-    --font-family-base: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    --font-family-base: "Noto Sans SC",-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
 
     /* Font Sizes */
     --font-size-xs: 0.75rem;    /* 12px */
@@ -287,6 +287,20 @@ body {
     height: 100%;
 }
 
+.content-wrapper {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    height: 100%;
+}
+
+.main-section-wrapper {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
 .main-container {
     flex: 1;
     padding: 28px 32px;
@@ -296,7 +310,7 @@ body {
     gap: 0;
 }
 
-/* Transcription wrapper for copy button */
+/* Transcription wrapper for copy/export buttons */
 .transcription-wrapper {
     position: relative;
     flex: 0 0 60%;
@@ -323,6 +337,13 @@ body {
     background: var(--bg-primary);
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(22, 197, 94, 0.1);
+}
+
+.transcription-placeholder {
+    color: var(--text-tertiary);
+    text-align: center;
+    padding: 80px 20px;
+    font-size: 14px;
 }
 
 /* Notes area */
@@ -380,9 +401,6 @@ body {
     box-shadow: 0 2px 4px var(--gray-alpha-100);
 }
 
-/* Nudge handle grip lines */
-
-
 /* Hover state */
 .nudge-handle:hover {
     background: var(--gray-300);
@@ -390,22 +408,11 @@ body {
     box-shadow: 0 4px 8px var(--gray-alpha-150);
 }
 
-.nudge-handle:hover::before,
-.nudge-handle:hover::after {
-    background: var(--gray-600);
-    width: 24px;
-}
-
 /* Active/dragging state */
 .nudge-handle.dragging {
     background: var(--gray-100);
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(22, 197, 94, 0.1);
-}
-
-.nudge-handle.dragging::before,
-.nudge-handle.dragging::after {
-    background: var(--accent);
 }
 
 /* Prevent text selection while dragging */
@@ -418,11 +425,19 @@ body.resizing * {
     cursor: ns-resize !important;
 }
 
-/* Copy button */
-.copy-button {
+/* Copy/Export buttons */
+.transcription-buttons {
     position: absolute;
     top: 12px;
     right: 12px;
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    z-index: 10;
+}
+
+.copy-button,
+.export-button {
     width: 32px;
     height: 32px;
     display: flex;
@@ -434,27 +449,30 @@ body.resizing * {
     cursor: pointer;
     opacity: 0;
     transition: all 0.2s ease;
-    z-index: 5;
-    color: var(--text-primary); /* Add this line */
+    color: var(--text-primary);
 }
 
-.copy-button svg {
+.copy-button svg,
+.export-button svg {
     flex-shrink: 0;
     display: block;
     width: 14px;
     height: 14px;
 }
 
-.transcription-wrapper:hover .copy-button {
+.transcription-wrapper:hover .copy-button,
+.transcription-wrapper:hover .export-button {
     opacity: 1;
 }
 
-.copy-button:hover {
+.copy-button:hover,
+.export-button:hover {
     background: var(--gray-50);
     border-color: var(--gray-300);
 }
 
-.copy-button:active {
+.copy-button:active,
+.export-button:active {
     transform: scale(0.95);
 }
 
@@ -462,13 +480,6 @@ body.resizing * {
     background: var(--accent);
     border-color: var(--accent);
     color: white;
-}
-
-.transcription-placeholder {
-    color: var(--text-tertiary);
-    text-align: center;
-    padding: 80px 20px;
-    font-size: 14px;
 }
 
 /* Controls Section */
@@ -503,7 +514,6 @@ button {
 }
 
 button:hover:not(:disabled) {
-    /*background: var(--gray-50);*/
     border-color: var(--gray-300);
 }
 
@@ -519,12 +529,6 @@ button:disabled {
 .primary-btn {
     background: var(--gray-900);
     color: white;
-    /*border-color: var(--gray-900);*/
-}
-
-.primary-btn:hover:not(:disabled) {
-    /*background: var(--gray-800);*/
-    /*border-color: var(--gray-800);*/
 }
 
 .primary-btn.recording {
@@ -577,6 +581,10 @@ button:disabled {
         min-width: 1.5px;
         max-width: 1.5px;
     }
+
+    #visualizerContainer {
+        gap: 1.5px;
+    }
 }
 
 /* Enhance bars during recording */
@@ -588,25 +596,6 @@ button:disabled {
 .audio-visualizer-inline.file-mode .visualizer-bar {
     background: var(--gray-600);
     opacity: 0.8;
-}
-
-/* Ensure bars fit properly when there are many */
-@media (min-width: 1400px) {
-    #visualizerContainer {
-        gap: 2.5px;
-    }
-}
-
-@media (max-width: 768px) {
-    #visualizerContainer {
-        gap: 1.5px;
-    }
-
-    .visualizer-bar {
-        width: 1.5px;
-        min-width: 1.5px;
-        max-width: 1.5px;
-    }
 }
 
 /* Right Panel - Terms */
@@ -755,23 +744,25 @@ button:disabled {
 }
 
 .processing-text {
-    position: relative;
-    display: inline;
+    color: var(--text-primary);
+    font-weight: 600;
+    background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(0, 0, 0, 0.04) 50%,
+            transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: processing-scan 2s ease-in-out infinite;
 }
 
-.reading-highlight {
-    position: absolute;
-    top: -2px;
-    left: 0;
-    height: calc(100% + 4px);
-    background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(22, 197, 94, 0.1) 50%,
-    transparent 100%);
-    width: 0;
-    transition: width 2s ease-out;
-    pointer-events: none;
-    border-radius: 4px;
+@keyframes processing-scan {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 /* Highlighted Terms */
@@ -958,7 +949,20 @@ button:disabled {
     }
 }
 
-/* Responsive */
+/* Handler Controls */
+.handler-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.handler-controls button {
+    font-size: 13px;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    min-height: 32px;
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
     .app-container {
@@ -1004,33 +1008,8 @@ button:disabled {
     }
 }
 
-.content-wrapper {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-    height: 100%;
-}
-
-.main-section-wrapper {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    overflow: hidden;
-}
-
-/* Static audio bars for file visualization */
-.visualizer-bar.static-bar {
-    background: var(--accent);
-    transition: none;
-    cursor: pointer;
-}
-
-.visualizer-bar.static-bar:hover {
-    opacity: 1 !important;
-    background: var(--accent-hover);
-}
-
-/* Ensure visualizer area has relative positioning for duration text */
-#audioVisualizerInline {
-    position: relative;
+@media (min-width: 1400px) {
+    #visualizerContainer {
+        gap: 2.5px;
+    }
 }
