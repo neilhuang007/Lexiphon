@@ -136,6 +136,8 @@ class BaseHandler {
             return;
         }
 
+        console.log(`[BaseHandler] Mounting ${this.name} to container:`, container.id || container.className);
+
         this._container = container;
         this._mounted = true;
 
@@ -147,6 +149,8 @@ class BaseHandler {
 
         // Render panel layout
         this._renderPanel();
+        
+        console.log(`[BaseHandler] ${this.name} rendered, container HTML length:`, container.innerHTML.length);
 
         // Restore saved state if available
         this._restoreState();
@@ -216,11 +220,17 @@ class BaseHandler {
 
         layout.sections.forEach(section => {
             const sectionEl = this._container.querySelector(`#section-${section.id}`);
-            if (sectionEl && section.shouldUpdate && section.shouldUpdate(data)) {
-                const content = this._renderSectionContent(section);
-                const contentEl = sectionEl.querySelector('.section-content');
-                if (contentEl) {
-                    contentEl.innerHTML = content;
+            if (sectionEl) {
+                // Always update if no shouldUpdate function is provided, or if it returns true
+                const shouldUpdate = !section.shouldUpdate || section.shouldUpdate(data);
+                if (shouldUpdate) {
+                    const content = this._renderSectionContent(section);
+                    const contentEl = sectionEl.querySelector('.section-content');
+                    if (contentEl) {
+                        contentEl.innerHTML = content;
+                        // Re-attach event handlers after updating content
+                        this._attachEventHandlers();
+                    }
                 }
             }
         });
@@ -328,7 +338,10 @@ class BaseHandler {
 
         if (this._isObject(target) && this._isObject(source)) {
             Object.keys(source).forEach(key => {
-                if (this._isObject(source[key])) {
+                // Special handling for Map objects
+                if (source[key] instanceof Map) {
+                    output[key] = source[key]; // Don't deep merge Maps
+                } else if (this._isObject(source[key])) {
                     if (!(key in target)) {
                         Object.assign(output, { [key]: source[key] });
                     } else {
@@ -344,7 +357,7 @@ class BaseHandler {
     }
 
     _isObject(item) {
-        return item && typeof item === 'object' && !Array.isArray(item);
+        return item && typeof item === 'object' && !Array.isArray(item) && !(item instanceof Map) && !(item instanceof Set);
     }
 }
 

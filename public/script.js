@@ -69,13 +69,62 @@ function switchCategory(category) {
 
     currentCategory = category;
 
-    // Use new setActiveCategory method
+    // Update active class for category items
+    document.querySelectorAll('.category-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    
+    const selectedItem = document.querySelector(`.category-item[data-category="${category}"]`);
+    if (selectedItem) {
+        selectedItem.classList.add('active');
+    }
+
+    // Use Handler Registry to manage the right panel clearing
     if (window.HandlerRegistry) {
+        // This will deactivate all current handlers and clear the panel
         window.HandlerRegistry.setActiveCategory(category);
     }
 
-    // Clear existing content when switching
-    clearContent();
+    // Reprocess existing transcript with new category handlers
+    if (fullTranscript && processedChunks.size > 0) {
+        console.log('Reprocessing transcript for category:', category);
+        reprocessTranscriptForCategory();
+    }
+}
+
+async function reprocessTranscriptForCategory() {
+    console.log('[reprocessTranscriptForCategory] Starting reprocessing');
+    
+    // Small delay to ensure handlers are fully mounted
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const handlers = window.HandlerRegistry.getActiveHandlers();
+    console.log(`[reprocessTranscriptForCategory] Processing ${processedChunks.size} chunks with ${handlers.length} handlers`);
+
+    // Process each existing chunk with new handlers
+    for (const [chunkId, correctedText] of processedChunks.entries()) {
+        if (correctedText && correctedText.trim()) {
+            const [startIndex, endIndex] = chunkId.split('-').map(Number);
+
+            for (const handler of handlers) {
+                console.log(`[reprocessTranscriptForCategory] Processing chunk ${chunkId} with handler ${handler.name}`);
+                await handler.processChunk(correctedText, {
+                    chunkId: chunkId,
+                    startIndex: startIndex,
+                    endIndex: endIndex
+                });
+            }
+        }
+    }
+
+    console.log('[reprocessTranscriptForCategory] Updating transcript display');
+    updateTranscriptionDisplay();
+    
+    // Also trigger a delayed update to ensure all state is propagated
+    setTimeout(() => {
+        console.log('[reprocessTranscriptForCategory] Final transcript update');
+        updateTranscriptionDisplay();
+    }, 200);
 }
 
 async function callDeepSeek(prompt, systemPrompt = "You are a helpful assistant.", messages = null, useJsonOutput = false) {
@@ -203,6 +252,25 @@ function createRecorder() {
 
     const recorder = new MediaRecorder(mediaStream, {mimeType});
     const chunks = [];
+
+    // Set up volume monitoring
+    if (audioContext) {
+        const source = audioContext.createMediaStreamSource(mediaStream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+
+        // Monitor volume periodically
+        const monitorVolume = () => {
+            if (recorder.state === 'recording') {
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(dataArray);
+                volumeAnalyzer.analyzeVolume(dataArray);
+                requestAnimationFrame(monitorVolume);
+            }
+        };
+        monitorVolume();
+    }
 
     recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
@@ -434,19 +502,100 @@ function appendToTranscription(text) {
 
     fullTranscript += text;
 
+    // Analyze for silence-based chunking
+    if (audioContext && currentRecorder && currentRecorder.state === 'recording') {
+        const analyser = audioContext.createAnalyser();
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(dataArray);
+
+        const isSilent = volumeAnalyzer.analyzeVolume(dataArray);
+
+        if (isSilent) {
+            console.log('Silence detected, processing chunk');
+            processSmartChunk();
+        }
+    }
+
+    async function processSmartChunk() {
+        const words = fullTranscript.split(/\s+/).filter(w => w.length > 0);
+        const processedWordCount = Array.from(processedChunks.values())
+            .map(chunk => chunk.split(/\s+/).filter(w => w.length > 0).length)
+            .reduce((a, b) => a + b, 0);
+
+        if (processedWordCount >= words.length) return;
+
+        // Get unprocessed text
+        const unprocessedWords = words.slice(processedWordCount);
+        const unprocessedText = unprocessedWords.join(' ');
+
+        // Find sentence boundary
+        const boundaryIndex = findSentenceBoundary(unprocessedText);
+
+        if (boundaryIndex > 0) {
+            // Process up to the sentence boundary
+            const chunkText = unprocessedText.substring(0, boundaryIndex);
+            const chunkWords = chunkText.split(/\s+/).filter(w => w.length > 0);
+
+            const startIndex = processedWordCount;
+            const endIndex = processedWordCount + chunkWords.length;
+            const chunkId = `${startIndex}-${endIndex}`;
+
+            if (!processedChunks.has(chunkId)) {
+                activeCorrections++;
+                updateCorrectionStatus();
+
+                try {
+                    const correctedText = await correctTyposForChunk(chunkText);
+                    if (correctedText && correctedText.trim()) {
+                        processedChunks.set(chunkId, correctedText);
+
+                        // Notify handlers
+                        const activeHandlers = window.HandlerRegistry.getActiveHandlers();
+                        for (const handler of activeHandlers) {
+                            await handler.processChunk(correctedText, {
+                                chunkId: chunkId,
+                                startIndex: startIndex,
+                                endIndex: endIndex
+                            });
+                        }
+                    }
+                } finally {
+                    activeCorrections--;
+                    updateCorrectionStatus();
+                }
+
+                updateTranscriptionDisplay();
+            }
+        } else if (unprocessedWords.length > BASE_CHUNK_SIZE * 2) {
+            // Force process if too much backlog
+            const chunkSize = Math.min(BASE_CHUNK_SIZE, unprocessedWords.length);
+            const chunkWords = unprocessedWords.slice(0, chunkSize);
+            const chunkText = chunkWords.join(' ');
+
+            const startIndex = processedWordCount;
+            const endIndex = processedWordCount + chunkWords.length;
+            const chunkId = `${startIndex}-${endIndex}`;
+
+            if (!processedChunks.has(chunkId)) {
+                processedChunks.set(chunkId, chunkText + '...');
+                updateTranscriptionDisplay();
+            }
+        }
+    }
+
+    updateTranscriptionDisplay();
+
+    // Fallback to word count based chunking
     const words = fullTranscript.split(/\s+/).filter(w => w.length > 0);
     const processedWordCount = Array.from(processedChunks.values())
         .map(chunk => chunk.split(/\s+/).filter(w => w.length > 0).length)
         .reduce((a, b) => a + b, 0);
 
-    // Always use updateTranscriptionDisplay for consistent rendering
-    updateTranscriptionDisplay();
-
     const backlog = words.length - processedWordCount;
-    const chunkSize = backlog > 100 ? Math.min(100, BASE_CHUNK_SIZE * 3) : BASE_CHUNK_SIZE;
 
-    if (backlog >= chunkSize) {
-        processNewChunks(false, chunkSize);
+    // Only process if we have enough backlog and no silence-based processing
+    if (backlog >= BASE_CHUNK_SIZE && !volumeAnalyzer.isSilent) {
+        processSmartChunk();
     }
 }
 
@@ -523,7 +672,40 @@ Input: "Anybody ever heard of Mt. Gox? (mouse clicking) Does that sound familiar
 Output: Anybody ever heard of Mt. Gox? Does that sound familiar? No. It was the first place to buy Bitcoin and it was 404. The website.`;
 
     try {
-        const response = await callDeepSeek(prompt, "You are a transcription editor for economics lectures");
+        // Get the selected AI agent for the current category
+        const selectedAgent = window.SettingsHandler ? 
+            window.SettingsHandler.getAgentForCategory(currentCategory) : 
+            'deepseek';
+        
+        console.log(`Using ${selectedAgent} for transcription correction`);
+        
+        let response;
+        if (selectedAgent === 'gemini') {
+            // Call Gemini API directly
+            const geminiResponse = await fetch('/api/gemini', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    prompt: prompt,
+                    systemPrompt: "You are a transcription editor for economics lectures",
+                    useJsonOutput: false
+                })
+            });
+
+            if (!geminiResponse.ok) {
+                console.error('Gemini API error, falling back to DeepSeek');
+                response = await callDeepSeek(prompt, "You are a transcription editor for economics lectures");
+            } else {
+                const data = await geminiResponse.json();
+                response = data.choices[0].message.content;
+            }
+        } else {
+            // Use DeepSeek
+            response = await callDeepSeek(prompt, "You are a transcription editor for economics lectures");
+        }
+        
         const cleaned = response.trim();
         if (cleaned === '""' || cleaned === "''") return '';
         return cleaned;
@@ -705,16 +887,21 @@ function applyHighlightsWithPriority(text, chunkId) {
     // Collect highlights from all active handlers
     const highlights = [];
 
-    // Get terms and events from all active finance handlers
+    // Get all active handlers
     const activeHandlers = window.HandlerRegistry.getActiveHandlers();
+    console.log(`Applying highlights for chunk ${chunkId}, active handlers:`, activeHandlers.length);
 
     activeHandlers.forEach(handler => {
         const state = handler.getState();
+        console.log(`Handler ${handler.name} state:`, state.customData);
+        console.log(`Handler ${handler.name} mounted:`, handler._mounted);
 
         // Process terms
-        if (state.customData.terms) {
-            state.customData.terms.forEach((data, term) => {
-                const regex = new RegExp(`\\b${escapeRegex(term)}\\b`, 'gi');
+        if (state.customData.terms && state.customData.terms instanceof Map) {
+            state.customData.terms.forEach((termData, termKey) => {
+                // Use the actual term name from the data, not the key
+                const termName = termData.term || termKey;
+                const regex = new RegExp(`\\b${escapeRegex(termName)}\\b`, 'gi');
                 let match;
                 while ((match = regex.exec(text)) !== null) {
                     highlights.push({
@@ -722,7 +909,7 @@ function applyHighlightsWithPriority(text, chunkId) {
                         start: match.index,
                         end: match.index + match[0].length,
                         text: match[0],
-                        data: term,
+                        data: termKey,
                         priority: match[0].length
                     });
                 }
@@ -730,32 +917,49 @@ function applyHighlightsWithPriority(text, chunkId) {
         }
 
         // Process events
-        if (state.customData.events) {
-            state.customData.events.forEach((data, eventKey) => {
-                if (!data.searchTerms) {
-                    data.searchTerms = handler._generateEventSearchTerms ?
-                        handler._generateEventSearchTerms(data.event) : [data.event];
+        if (state.customData.events && state.customData.events instanceof Map) {
+            console.log(`Processing ${state.customData.events.size} events for highlighting`);
+
+            state.customData.events.forEach((eventData, eventKey) => {
+                // Ensure searchTerms exist
+                if (!eventData.searchTerms || !Array.isArray(eventData.searchTerms)) {
+                    console.warn(`No search terms for event ${eventKey}`, eventData);
+                    return;
                 }
 
-                data.searchTerms.forEach(searchTerm => {
-                    const regex = new RegExp(`\\b${escapeRegex(searchTerm)}\\b`, 'gi');
-                    let match;
-                    while ((match = regex.exec(text)) !== null) {
-                        highlights.push({
-                            type: 'event',
-                            start: match.index,
-                            end: match.index + match[0].length,
-                            text: match[0],
-                            data: eventKey,
-                            priority: 1000 + match[0].length
-                        });
+                console.log(`Searching for event "${eventKey}" with terms:`, eventData.searchTerms);
+
+                eventData.searchTerms.forEach(searchTerm => {
+                    try {
+                        // More flexible regex - allow partial word matches for longer terms
+                        const isShortTerm = searchTerm.length <= 4;
+                        const regexPattern = isShortTerm 
+                            ? `\\b${escapeRegex(searchTerm)}\\b` 
+                            : escapeRegex(searchTerm);
+                        const regex = new RegExp(regexPattern, 'gi');
+                        let match;
+                        while ((match = regex.exec(text)) !== null) {
+                            console.log(`Found match for "${searchTerm}" at position ${match.index}`);
+                            highlights.push({
+                                type: 'event',
+                                start: match.index,
+                                end: match.index + match[0].length,
+                                text: match[0],
+                                data: eventKey,
+                                priority: 1000 + match[0].length
+                            });
+                        }
+                    } catch (regexError) {
+                        console.error(`Regex error for term "${searchTerm}":`, regexError);
                     }
                 });
             });
         }
     });
 
-    // Sort and resolve overlaps (rest of the function remains the same)
+    console.log(`Total highlights found: ${highlights.length}`);
+
+    // Sort and resolve overlaps
     highlights.sort((a, b) => {
         if (a.start !== b.start) return a.start - b.start;
         return b.priority - a.priority;
@@ -797,269 +1001,6 @@ function applyHighlightsWithPriority(text, chunkId) {
 
     result += escapeHtml(text.substring(lastIndex));
     return result;
-}
-
-async function processTextForEvents(text, chunkId) {
-    if (!text.trim()) return;
-
-    const promptData = categoryPrompts[currentCategory]?.events;
-    if (!promptData) {
-        throw new Error(`No event prompts loaded for category: ${currentCategory}`);
-    }
-
-    // Build messages from loaded examples
-    const messages = [
-        {
-            role: "system",
-            content: promptData.systemPrompt
-        },
-        {
-            role: "user",
-            content: promptData.taskDescription + `\nExtract events from: "${promptData.examples[0].input}"`
-        },
-        {
-            role: "assistant",
-            content: JSON.stringify(promptData.examples[0].output)
-        }
-    ];
-
-    // Add remaining examples
-    for (let i = 1; i < promptData.examples.length; i++) {
-        messages.push({
-            role: "user",
-            content: `Extract events from: "${promptData.examples[i].input}"`
-        });
-        messages.push({
-            role: "assistant",
-            content: JSON.stringify(promptData.examples[i].output)
-        });
-    }
-
-    // Add the actual text to process
-    messages.push({
-        role: "user",
-        content: `Extract events from: "${text}"`
-    });
-
-    try {
-        const response = await callDeepSeek(null, null, messages, true);
-        console.log('Event detection response:', response);
-
-        let json;
-        try {
-            json = JSON.parse(response);
-        } catch (parseError) {
-            console.error('Failed to parse events JSON:', parseError);
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                json = JSON.parse(jsonMatch[0]);
-            } else {
-                throw parseError;
-            }
-        }
-
-        if (json.events && json.events.length > 0) {
-            json.events.forEach(e => {
-                const eventKey = e.event.toLowerCase().replace(/\s+/g, '-');
-                if (!detectedEvents.has(eventKey)) {
-                    e.chunkId = chunkId;
-                    e.searchTerms = generateEventSearchTerms(e.event);
-                    if (e.quote && !e.searchTerms.includes(e.quote)) {
-                        e.searchTerms.push(e.quote);
-                    }
-                    console.log(`Event detected: ${e.event}, search terms:`, e.searchTerms);
-                    detectedEvents.set(eventKey, e);
-                    addEventCard(e, eventKey);
-                }
-            });
-            updateTranscriptionDisplay();
-        }
-    } catch (e) {
-        console.error('Event detection error:', e);
-        throw e;
-    }
-}
-
-async function processTextForTerms(text, chunkId) {
-    if (!text.trim()) return;
-    document.getElementById('processingIndicator').style.display = 'inline-flex';
-
-    const promptData = categoryPrompts[currentCategory]?.terms;
-    if (!promptData) {
-        throw new Error(`No term prompts loaded for category: ${currentCategory}`);
-    }
-
-    // Build messages from loaded examples
-    const messages = [
-        {
-            role: "system",
-            content: promptData.systemPrompt
-        },
-        {
-            role: "user",
-            content: promptData.taskDescription + `\n\nExtract terms from: "${promptData.examples[0].input}"`
-        },
-        {
-            role: "assistant",
-            content: JSON.stringify(promptData.examples[0].output)
-        }
-    ];
-
-    // Add remaining examples
-    for (let i = 1; i < promptData.examples.length; i++) {
-        messages.push({
-            role: "user",
-            content: `Extract terms from: "${promptData.examples[i].input}"`
-        });
-        messages.push({
-            role: "assistant",
-            content: JSON.stringify(promptData.examples[i].output)
-        });
-    }
-
-    // Add the actual text to process
-    messages.push({
-        role: "user",
-        content: `Extract terms from: "${text}"`
-    });
-
-    try {
-        const response = await callDeepSeek(null, null, messages, true);
-        console.log('Terms response:', response);
-
-        let json;
-        try {
-            json = JSON.parse(response);
-        } catch (parseError) {
-            console.error('Failed to parse terms JSON:', parseError);
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                json = JSON.parse(jsonMatch[0]);
-            } else {
-                throw parseError;
-            }
-        }
-
-        if (json.terms && json.terms.length > 0) {
-            json.terms.forEach(t => {
-                if (!detectedTerms.has(t.term.toLowerCase())) {
-                    detectedTerms.set(t.term.toLowerCase(), t);
-                    addTermCard(t);
-                }
-            });
-            updateTranscriptionDisplay();
-        }
-    } catch (e) {
-        console.error('Term error:', e);
-        throw e;
-    } finally {
-        if (!isProcessing) {
-            document.getElementById('processingIndicator').style.display = 'none';
-        }
-    }
-}
-
-function generateEventSearchTerms(eventName) {
-    const terms = [eventName];
-    const lowerEvent = eventName.toLowerCase();
-
-    // Finance events
-    if (lowerEvent.includes('financial crisis') || lowerEvent.includes('2008')) {
-        terms.push('financial crisis', 'crisis', '2008', 'subprime');
-    }
-    if (lowerEvent.includes('black tuesday')) {
-        terms.push('Black Tuesday', 'black', 'Tuesday', '1929', 'crash', 'market crash');
-    }
-    if (lowerEvent.includes('great depression')) {
-        terms.push('Great Depression', 'depression', '1930s', 'economic depression');
-    }
-    if (lowerEvent.includes('dot-com') || lowerEvent.includes('dotcom')) {
-        terms.push('dot-com', 'dotcom', 'tech bubble', 'bubble', 'internet bubble');
-    }
-    if (lowerEvent.includes('brexit')) {
-        terms.push('Brexit', 'EU', 'referendum', 'European Union');
-    }
-    if (lowerEvent.includes('2014-21') || lowerEvent.includes('notice')) {
-        terms.push('2014-21', 'IRS', 'notice', 'Bitcoin', 'property');
-    }
-    if (lowerEvent.includes('fincen') || lowerEvent.includes('2013')) {
-        terms.push('FinCEN', 'March 2013', '2013', 'money service', 'Bitcoin');
-    }
-
-    // CS events
-    if (lowerEvent.includes('iphone')) {
-        terms.push('iPhone', 'Apple', 'launch', '2007', 'smartphone');
-    }
-    if (lowerEvent.includes('windows')) {
-        terms.push('Windows', 'Microsoft', 'operating system', 'OS');
-    }
-    if (lowerEvent.includes('internet')) {
-        terms.push('Internet', 'ARPANET', 'world wide web', 'WWW');
-    }
-
-    // History events
-    if (lowerEvent.includes('berlin wall')) {
-        terms.push('Berlin Wall', 'wall', 'Berlin', '1989', 'fall');
-    }
-    if (lowerEvent.includes('world war')) {
-        terms.push('World War', 'war', 'WWI', 'WWII', 'global conflict');
-    }
-    if (lowerEvent.includes('revolution')) {
-        terms.push('Revolution', 'revolutionary', 'uprising', 'revolt');
-    }
-
-    // Add partial matches from the event name
-    const words = eventName.split(/\s+/);
-    words.forEach(word => {
-        if (word.length > 3 && !['the', 'and', 'for', 'with'].includes(word.toLowerCase())) {
-            terms.push(word);
-        }
-    });
-
-    // Remove duplicates
-    return [...new Set(terms)];
-}
-
-function addTermCard(termData) {
-    const container = document.getElementById('termsContainer');
-    const placeholder = container.querySelector('.no-terms');
-    if (placeholder) placeholder.remove();
-
-    const card = document.createElement('div');
-    card.className = 'term-card';
-    card.id = `term-${termData.term.toLowerCase().replace(/\s+/g, '-')}`;
-    card.innerHTML = `
-        <h3>${termData.term}</h3>
-        <div class="term-definition">${termData.definition}</div>
-        <div class="term-context">${termData.historicalContext}</div>
-    `;
-
-    card.addEventListener('click', () => {
-        scrollToLastOccurrence(termData.term, false);
-        highlightCard(card.id);
-    });
-    container.insertBefore(card, container.firstChild);
-}
-
-function addEventCard(eventData, eventKey) {
-    const container = document.getElementById('termsContainer');
-    const placeholder = container.querySelector('.no-terms');
-    if (placeholder) placeholder.remove();
-
-    const card = document.createElement('div');
-    card.className = 'event-card';
-    card.id = `event-${eventKey}`;
-    card.innerHTML = `
-        <h3>${eventData.event}</h3>
-        <div class="event-quote">"${eventData.quote}"</div>
-        <div class="event-description">${eventData.description}</div>
-    `;
-
-    card.addEventListener('click', () => {
-        scrollToLastOccurrence(eventData.event, true);
-        highlightCard(card.id);
-    });
-    container.insertBefore(card, container.firstChild);
 }
 
 function scrollToElement(element) {
@@ -1178,7 +1119,9 @@ async function toggleRecording() {
 }
 
 function clearContent() {
-    console.log('Clearing transcription content');
+    console.log('Clearing transcription content and all handler states');
+    
+    // Clear transcript and processing data
     fullTranscript = '';
     correctedTranscript = '';
     processedChunks.clear();
@@ -1191,14 +1134,34 @@ function clearContent() {
     clearTimeout(silenceTimer);
     clearInterval(recordingTimer);
 
+    // Clear all handler states and localStorage
+    if (window.HandlerRegistry) {
+        // Clear all handler localStorage
+        const allHandlers = window.HandlerRegistry.getAll();
+        allHandlers.forEach(handler => {
+            const storageKey = `handler-state-${handler.name}`;
+            localStorage.removeItem(storageKey);
+            console.log(`Cleared localStorage for handler: ${handler.name}`);
+        });
+        
+        // Get current category to re-activate after clearing
+        const currentCategory = window.HandlerRegistry.activeCategory || 'finance';
+        
+        // Clear all handlers completely
+        window.HandlerRegistry.clearAll();
+        
+        // Re-register all handlers with fresh state
+        setTimeout(() => {
+            console.log('Re-registering handlers with fresh state');
+            registerHandlers();
+            window.HandlerRegistry.setActiveCategory(currentCategory);
+        }, 100);
+    }
+
+    // Clear UI elements
     const transcriptionArea = document.getElementById('transcriptionArea');
     if (transcriptionArea) {
         transcriptionArea.innerHTML = `<div class="transcription-placeholder">Start recording or upload an audio file to begin transcription</div>`;
-    }
-
-    const termsContainer = document.getElementById('termsContainer');
-    if (termsContainer) {
-        termsContainer.innerHTML = `<div class="no-terms">Economic terms and events will appear here as they're detected</div>`;
     }
 
     updateUploadStatus();
@@ -1391,50 +1354,85 @@ function initNotesPlaceholder() {
     });
 }
 
+let volumeAnalyzer = new VolumeAnalyzer();
+
+// Smart sentence boundary detection
+function findSentenceBoundary(text) {
+    // Find the last complete sentence
+    const sentenceEnders = /[.!?]\s*$/;
+    const abbreviations = /(?:Mr|Mrs|Dr|Ms|Prof|Sr|Jr)\.\s*$/i;
+
+    // Work backwards to find a good break point
+    for (let i = text.length - 1; i >= 0; i--) {
+        const substring = text.substring(0, i + 1);
+
+        // Check if this ends with sentence punctuation
+        if (sentenceEnders.test(substring)) {
+            // Make sure it's not an abbreviation
+            if (!abbreviations.test(substring)) {
+                return i + 1;
+            }
+        }
+    }
+
+    // If no sentence boundary found, look for other natural breaks
+    const softBreaks = /[,:;]\s*$/;
+    for (let i = text.length - 1; i >= 0; i--) {
+        const substring = text.substring(0, i + 1);
+        if (softBreaks.test(substring)) {
+            return i + 1;
+        }
+    }
+
+    return -1; // No good boundary found
+}
+
+
+// script.js
+
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('Init Lexiphon with Handler Framework');
 
     try {
-        // Load prompts first
         await loadCategoryPrompts();
-
-        // Initialize framework components
-        if (window.RightPanelManager) {
-            window.RightPanelManager.init();
-        }
-
-        // Register handlers after prompt loading
-        if (window.BaseHandler && window.HandlerRegistry) {
-            registerHandlers();
-        } else {
-            console.warn('Handler framework not loaded, falling back to legacy mode');
-        }
-
     } catch (error) {
-        showError('Failed to load configuration. Please check prompt files.');
-        console.error(error);
+        console.error('Error loading prompts:', error);
+        throw new Error('Failed to load prompt configuration files');
     }
 
-    detectBrowser();
+    // Initialize the right‑panel framework
+    if (window.RightPanelManager) {
+        window.RightPanelManager.init();
+    }
 
-    const hasPermission = await checkMicrophonePermission();
-    if (!hasPermission) {
-        document.getElementById('permissionModal').style.display = 'flex';
+    // ─── FIXED: register all handlers up front and activate finance ───
+    if (window.BaseHandler && window.HandlerRegistry) {
+        registerHandlers();
+        window.HandlerRegistry.setActiveCategory('finance');
     } else {
+        // (fallback for mic permission if needed)
         microphoneGranted = true;
         await requestMicrophonePermission();
     }
+    // ────────────────────────────────────────────────────────────────
 
-    // Initialize visualizer bars
+    // Sidebar, resizer, notes UI
+    initializeSidebar();
+    initNudgeResizer();
+    initNotesPlaceholder();
+
+    // Audio visualizer
     if (window.AudioVisualizer) {
-        window.AudioVisualizer.createBars();
+        window.AudioVisualizer.waitForContainerReady(() => {
+            window.AudioVisualizer.createBars();
+        });
     }
 
-    // Record button
+    // Recording controls
     document.getElementById('recordBtn').addEventListener('click', toggleRecording);
     document.getElementById('clear-btn').addEventListener('click', clearContent);
 
-    // Upload button
+    // File upload
     const audioUpload = document.getElementById('audioUpload');
     if (audioUpload) {
         audioUpload.addEventListener('change', handleAudioUpload);
@@ -1451,49 +1449,45 @@ document.addEventListener('DOMContentLoaded', async () => {
                     window.AudioVisualizer.reprocessFileAmplitudes(window.AudioVisualizer.originalFileAmplitudes);
                 } else if (window.AudioVisualizer.mode === 'realtime' && window.AudioVisualizer.isInitialized) {
                     window.AudioVisualizer.createBars();
-                } else {
-                    window.AudioVisualizer.createBars();
                 }
             }
         }, 250);
     });
 
-    window.requestMicrophonePermission = requestMicrophonePermission;
-
-    initializeSidebar();
-    initNudgeResizer();
-    initNotesPlaceholder();
-
-    // Initialize visualizer bars after container is ready
-    if (window.AudioVisualizer) {
-        window.AudioVisualizer.waitForContainerReady(() => {
-            window.AudioVisualizer.createBars();
-        });
-    }
-
     console.log('Ready.');
 });
 
+// script.js
+
 function registerHandlers() {
-    // Finance handlers - separate terms and events
+    // Finance handlers (only domain with terms and events analysis)
     const financeTermsHandler = new FinanceTermsHandler();
     const financeEventsHandler = new FinanceEventsHandler();
 
     window.HandlerRegistry.register(financeTermsHandler);
     window.HandlerRegistry.register(financeEventsHandler);
 
-    // CS handler (if exists)
-    if (window.ComputerScienceHandler) {
-        const csHandler = new ComputerScienceHandler();
-        window.HandlerRegistry.register(csHandler);
-    }
+    // Universal settings handler for all categories
+    const settingsHandler = new SettingsHandler({
+        name: 'settings',
+        displayName: 'Settings',
+        icon: '⚙️',
+        description: 'Configure AI agent settings'
+    });
 
-    // History handler (if exists)
-    if (window.HistoryHandler) {
-        const historyHandler = new HistoryHandler();
-        window.HandlerRegistry.register(historyHandler);
-    }
+    // Register settings handler for each category
+    ['finance', 'cs', 'history'].forEach(category => {
+        const categorySettingsHandler = new SettingsHandler({
+            name: `${category}-settings`,
+            displayName: 'Settings',
+            icon: '⚙️',
+            category: category,
+            description: `Configure AI agent for ${category === 'cs' ? 'computer science' : category} analysis`
+        });
+        window.HandlerRegistry.register(categorySettingsHandler);
+    });
 }
+
 
 function exportAnalysis() {
     const handler = window.HandlerRegistry.getActive();
@@ -1575,28 +1569,7 @@ function attachTranscriptEventListeners() {
         });
     });
 
-    if (window.BaseHandler && window.HandlerRegistry) {
-        registerHandlers();
-        // Set default category
-        setTimeout(() => {
-            window.HandlerRegistry.setActiveCategory('finance');
-        }, 100);
-    }
+    // Remove duplicate registration - already done above
 }
 
-// Debug helper - add after DOMContentLoaded
-window.debugHandlers = function() {
-    const handlers = window.HandlerRegistry.getActiveHandlers();
-    console.log('=== ACTIVE HANDLERS DEBUG ===');
-    handlers.forEach(handler => {
-        const state = handler.getState();
-        console.log(`Handler: ${handler.name}`);
-        console.log('State:', state);
-        if (state.customData.terms) {
-            console.log('Terms:', Array.from(state.customData.terms.entries()));
-        }
-        if (state.customData.events) {
-            console.log('Events:', Array.from(state.customData.events.entries()));
-        }
-    });
-};
+

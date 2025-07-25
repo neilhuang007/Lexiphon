@@ -91,7 +91,10 @@ class HandlerRegistry {
         // Mount handler content
         const tabContent = document.getElementById(`tab-content-${handler.name}`);
         if (tabContent) {
+            console.log(`[HandlerRegistry] Mounting ${handler.name} to tab content`);
             handler.onMount(tabContent);
+        } else {
+            console.error(`[HandlerRegistry] Tab content not found for ${handler.name}`);
         }
 
         // Notify listeners
@@ -115,6 +118,21 @@ class HandlerRegistry {
             this._notifyListeners('deactivated', handler);
         });
         this.activeHandlers.clear();
+    }
+    
+    clearAll() {
+        console.log('[HandlerRegistry] Clearing all handlers');
+        
+        // Deactivate all handlers first
+        this.deactivateAll();
+        
+        // Clear all handlers from registry
+        this.handlers.clear();
+        
+        // Clear the right panel
+        this._renderEmptyPanel();
+        
+        console.log('[HandlerRegistry] All handlers cleared');
     }
 
     getActive() {
@@ -218,6 +236,8 @@ class HandlerRegistry {
     }
 
     _updateCategorySelection(category) {
+        console.log(`[HandlerRegistry] Updating category selection to: ${category}`);
+        
         // Map category to display text
         const categoryTextMap = {
             'finance': 'Finance/Business',
@@ -226,12 +246,26 @@ class HandlerRegistry {
         };
 
         const categoryText = categoryTextMap[category];
-        if (!categoryText) return;
+        if (!categoryText) {
+            console.warn(`[HandlerRegistry] Unknown category: ${category}`);
+            return;
+        }
 
-        // Update active category
-        document.querySelectorAll('.category-item').forEach(item => {
+        // Update active category - remove active from all first
+        const categoryItems = document.querySelectorAll('.category-item');
+        console.log(`[HandlerRegistry] Found ${categoryItems.length} category items`);
+        
+        categoryItems.forEach(item => {
             const itemCategory = item.getAttribute('data-category');
-            item.classList.toggle('active', itemCategory === category);
+            console.log(`[HandlerRegistry] Item category: ${itemCategory}, target: ${category}`);
+            
+            if (itemCategory === category) {
+                item.classList.add('active');
+                console.log(`[HandlerRegistry] Added active to ${itemCategory}`);
+            } else {
+                item.classList.remove('active');
+                console.log(`[HandlerRegistry] Removed active from ${itemCategory}`);
+            }
         });
 
         // Update header

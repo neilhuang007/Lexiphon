@@ -7,6 +7,13 @@ class FinanceTermsHandler extends BaseHandler {
             description: 'Identifies and explains financial terminology'
         });
 
+        // Initialize state properly
+        this._state.customData = {
+            terms: new Map(),
+            lastProcessedChunk: null,
+            summary: null
+        };
+
         this.termsPrompt = null;
         this.loadPrompts();
     }
@@ -21,20 +28,51 @@ class FinanceTermsHandler extends BaseHandler {
         }
     }
 
-    setState(updates) {
-        console.log('[FinanceTermsHandler] setState called with:', updates);
-        if (updates.customData && updates.customData.terms && !(updates.customData.terms instanceof Map)) {
-            updates.customData.terms = new Map(updates.customData.terms);
-        }
-        super.setState(updates);
-    }
-
     getState() {
         const state = super.getState();
-        if (state.customData && state.customData.terms && !(state.customData.terms instanceof Map)) {
-            state.customData.terms = new Map(state.customData.terms);
+
+        // Ensure terms exists and is a Map
+        if (!state.customData) {
+            state.customData = {};
         }
+
+        if (!state.customData.terms) {
+            state.customData.terms = new Map();
+        } else if (!(state.customData.terms instanceof Map)) {
+            // Handle different data types safely
+            if (Array.isArray(state.customData.terms)) {
+                state.customData.terms = new Map(state.customData.terms);
+            } else if (state.customData.terms && typeof state.customData.terms === 'object') {
+                // Convert plain object to Map
+                state.customData.terms = new Map(Object.entries(state.customData.terms));
+            } else {
+                // If it's something else, create empty Map
+                state.customData.terms = new Map();
+            }
+        }
+
         return state;
+    }
+
+    setState(updates) {
+        console.log('[FinanceTermsHandler] setState called with:', updates);
+
+        // Ensure proper initialization before calling parent setState
+        if (!updates.customData) {
+            updates.customData = {};
+        }
+
+        if (updates.customData.terms !== undefined && !(updates.customData.terms instanceof Map)) {
+            if (Array.isArray(updates.customData.terms)) {
+                updates.customData.terms = new Map(updates.customData.terms);
+            } else if (updates.customData.terms && typeof updates.customData.terms === 'object') {
+                updates.customData.terms = new Map(Object.entries(updates.customData.terms));
+            } else {
+                updates.customData.terms = new Map();
+            }
+        }
+
+        super.setState(updates);
     }
 
     getPanelLayout() {
@@ -81,20 +119,13 @@ class FinanceTermsHandler extends BaseHandler {
 
             const state = this.getState();
 
-            // Normalize terms map
-            let currentTermsRaw = state.customData.terms;
-            let currentTerms;
-
-            if (currentTermsRaw instanceof Map) {
-                currentTerms = currentTermsRaw;
-            } else if (Array.isArray(currentTermsRaw)) {
-                currentTerms = new Map(currentTermsRaw);
-            } else if (currentTermsRaw && typeof currentTermsRaw === 'object') {
-                currentTerms = new Map(Object.entries(currentTermsRaw));
-            } else {
-                currentTerms = new Map();
+            // Ensure terms map exists
+            if (!state.customData.terms || !(state.customData.terms instanceof Map)) {
+                console.warn('[FinanceTermsHandler] Terms map was not properly initialized, creating new Map');
+                state.customData.terms = new Map();
             }
 
+            const currentTerms = state.customData.terms;
             console.log(`[FinanceTermsHandler] Current terms count: ${currentTerms.size}`);
 
             terms.forEach(term => {
@@ -105,15 +136,27 @@ class FinanceTermsHandler extends BaseHandler {
                 }
             });
 
-            this.setState({
+            // Update state with new terms
+            const newState = {
                 customData: {
                     ...state.customData,
                     terms: currentTerms,
                     lastProcessedChunk: context.chunkId
                 }
-            });
-
-            console.log(`[FinanceTermsHandler] Updated terms count: ${currentTerms.size}`);
+            };
+            
+            console.log(`[FinanceTermsHandler] Before setState - terms count: ${currentTerms.size}`);
+            this.setState(newState);
+            
+            // Verify state after update
+            const updatedState = this.getState();
+            console.log(`[FinanceTermsHandler] After setState - terms count: ${updatedState.customData.terms?.size || 0}`);
+            
+            // Force UI update
+            if (this._mounted) {
+                console.log('[FinanceTermsHandler] Forcing UI update');
+                this.onUpdate(updatedState);
+            }
         } catch (error) {
             console.error('[FinanceTermsHandler] Error in processChunk:', error);
         }
@@ -142,12 +185,18 @@ class FinanceTermsHandler extends BaseHandler {
 
     async _extractTerms(text, chunkId) {
         console.log(`[FinanceTermsHandler] Extracting terms from chunk ${chunkId}`);
+
+        if (!this.termsPrompt) {
+            console.error('[FinanceTermsHandler] No prompts loaded');
+            return [];
+        }
+
         const messages = this._buildMessages(this.termsPrompt, text);
 
         try {
-            const response = await this._callDeepSeek(messages);
+            const response = await this._callAIAgent(messages);
             const json = this._parseJsonResponse(response);
-            console.log('[FinanceTermsHandler] DeepSeek response:', json);
+            console.log('[FinanceTermsHandler] AI Agent response:', json);
             return json.terms || [];
         } catch (error) {
             console.error('[FinanceTermsHandler] Term extraction error:', error);
@@ -190,25 +239,43 @@ class FinanceTermsHandler extends BaseHandler {
         return messages;
     }
 
-    async _callDeepSeek(messages) {
-        console.log('[FinanceTermsHandler] Calling DeepSeek API');
-        const response = await fetch('/api/deepseek', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
+    async _callAIAgent(messages) {
+        console.log('[FinanceTermsHandler] Calling AI Agent');
+        
+        // Get current AI agent setting for finance category
+        const selectedAgent = window.SettingsHandler ? 
+            window.SettingsHandler.getAgentForCategory('finance') : 
+            'deepseek';
+        
+        console.log('[FinanceTermsHandler] Using AI agent:', selectedAgent);
+        
+        if (window.AIAgentManager) {
+            return await window.AIAgentManager.callAgent(selectedAgent, {
                 messages,
                 useJsonOutput: true
-            })
-        });
+            });
+        } else {
+            // Fallback to DeepSeek if AIAgentManager not available
+            const response = await fetch('/api/deepseek', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    messages,
+                    useJsonOutput: true
+                })
+            });
 
-        if (!response.ok) {
-            throw new Error(`DeepSeek API error: ${response.status}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[FinanceTermsHandler] DeepSeek API error:', errorText);
+                throw new Error(`DeepSeek API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data.choices[0].message.content;
         }
-
-        const data = await response.json();
-        return data.choices[0].message.content;
     }
 
     _parseJsonResponse(response) {
@@ -238,9 +305,9 @@ class FinanceTermsHandler extends BaseHandler {
             <div class="terms-list">
                 ${termsList.map(term => `
                     <div class="term-card" data-term-id="${term.term.toLowerCase()}">
-                        <h3>${term.term}</h3>
-                        <div class="term-definition">${term.definition}</div>
-                        <div class="term-context">${term.historicalContext}</div>
+                        <h3>${this._escapeHtml(term.term)}</h3>
+                        <div class="term-definition">${this._escapeHtml(term.definition)}</div>
+                        <div class="term-context">${this._escapeHtml(term.historicalContext)}</div>
                     </div>
                 `).join('')}
             </div>
@@ -269,9 +336,21 @@ class FinanceTermsHandler extends BaseHandler {
 
     _updateTranscriptHighlights() {
         console.log('[FinanceTermsHandler] Requesting transcript highlight update');
-        // Trigger main app to update highlights
-        if (window.updateTranscriptionDisplay) {
-            window.updateTranscriptionDisplay();
-        }
+        // Small delay to ensure state is fully updated
+        setTimeout(() => {
+            if (window.updateTranscriptionDisplay) {
+                window.updateTranscriptionDisplay();
+            }
+        }, 50);
+    }
+
+
+    _escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 }
+
+// Export for use
+window.FinanceTermsHandler = FinanceTermsHandler;

@@ -47,6 +47,48 @@
     overflow: auto;
 }
 
+/* Settings Panel Styles */
+.settings-panel {
+    padding: 20px;
+    background: var(--bg-primary);
+}
+
+.settings-panel h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.settings-panel p {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.ai-agent-select {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ai-agent-select:hover {
+    border-color: var(--border-primary);
+}
+
+.ai-agent-select:focus {
+    outline: none;
+    border-color: var(--blue-500);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
 /* Minimalistic Tabs Layout */
 .tabs-layout {
     padding: 0;
@@ -331,6 +373,15 @@
     background: var(--primary);
 }
 
+/* Ensure tabs are visible */
+.multi-handler-tabs .tabs-header {
+    min-height: 40px;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex !important;
+    visibility: visible !important;
+}
+
 .multi-handler-tabs .tab-icon {
     font-size: 16px;
 }
@@ -345,8 +396,83 @@
     display: none;
     height: 100%;
     overflow-y: auto;
+    padding: 0;
 }
 
 .multi-handler-tabs .tab-panel.active {
     display: block;
+}
+
+/* Ensure content inside panels is visible */
+.multi-handler-tabs .stack-layout {
+    height: 100%;
+}
+
+.multi-handler-tabs .section-content {
+    height: 100%;
+    overflow-y: auto;
+}
+
+/* Term and Event Cards styling */
+.terms-list {
+    padding: 12px;
+    overflow-y: auto;
+    height: 100%;
+}
+
+.term-card, .event-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.term-card:hover, .event-card:hover {
+    border-color: #10b981;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);
+}
+
+.event-card:hover {
+    border-color: #f59e0b;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.1);
+}
+
+.term-card h3, .event-card h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+    color: #111827;
+}
+
+.term-definition, .event-description {
+    font-size: 14px;
+    color: #4b5563;
+    line-height: 1.5;
+    margin-bottom: 8px;
+}
+
+.term-context {
+    font-size: 13px;
+    color: #6b7280;
+    font-style: italic;
+}
+
+.event-quote {
+    font-size: 14px;
+    color: #374151;
+    font-style: italic;
+    padding: 8px 12px;
+    background: #f9fafb;
+    border-left: 3px solid #f59e0b;
+    margin: 8px 0;
+}
+
+.no-terms {
+    text-align: center;
+    color: #9ca3af;
+    padding: 24px;
+    font-size: 14px;
 }
