@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { setGlobalDispatcher, ProxyAgent } from 'undici';
 
 export default async function handler(req, res) {
@@ -40,8 +40,9 @@ export default async function handler(req, res) {
             console.warn('Proxy configuration failed, continuing without proxy:', proxyError.message);
         }
 
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+        const modelName = "gemini-2.5-flash";
 
         // Build the prompt content
         let promptContent;
@@ -63,9 +64,11 @@ export default async function handler(req, res) {
 
         console.log('Request to Gemini:', promptContent.substring(0, 200) + '...');
 
-        // Use the simple pattern that works in your code
-        const result = await model.generateContent(promptContent);
-        const responseText = result.response.text();
+        const response = await ai.models.generateContent({
+            model: modelName,
+            contents: promptContent
+        });
+        const responseText = response.text;
 
         console.log('Gemini Response:', responseText.substring(0, 200) + '...');
 
